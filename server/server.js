@@ -54,14 +54,22 @@ const uploadRoutes = require('./routes/uploadRoutes');
 const app = express();
 const server = http.createServer(app);
 
+// Trust Railway's reverse proxy (needed for secure cookies & correct IP detection)
+if (process.env.NODE_ENV === 'production') {
+    app.set('trust proxy', 1);
+}
+
+// Build allowed origins list
+const allowedOrigins = process.env.NODE_ENV === 'production'
+    ? (process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : false)
+    : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+
 // ============================================
 // INITIALIZE SOCKET.IO
 // ============================================
 const io = new Server(server, {
     cors: {
-        origin: process.env.NODE_ENV === 'production'
-            ? false
-            : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+        origin: allowedOrigins,
         methods: ['GET', 'POST'],
         credentials: true
     }
@@ -73,9 +81,7 @@ const io = new Server(server, {
 
 // CORS configuration
 app.use(cors({
-    origin: process.env.NODE_ENV === 'production'
-        ? false
-        : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+    origin: allowedOrigins,
     credentials: true
 }));
 

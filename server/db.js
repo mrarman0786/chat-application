@@ -27,24 +27,30 @@ require('dotenv').config();
  * Create a connection pool to the MySQL database
  * Pool manages multiple connections efficiently
  */
-const pool = mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',      // Database host
-    port: process.env.DB_PORT || 3306,             // Database port
-    user: process.env.DB_USER || 'root',           // Database username
-    password: process.env.DB_PASSWORD || '',        // Database password
-    database: process.env.DB_NAME || 'chat_app_db', // Database name
-    
-    // Pool configuration
-    waitForConnections: true,    // Wait for available connection if pool is exhausted
-    connectionLimit: 10,         // Maximum number of connections in pool
-    queueLimit: 0,               // Unlimited queue (0 = no limit)
-    
-    // Enable prepared statements for security
-    namedPlaceholders: true,
-    
-    // Connection timeout settings
-    connectTimeout: 10000,       // 10 seconds connection timeout
-});
+// Build connection config — supports Railway env vars, MYSQL_URL, and custom DB_* vars
+const dbConfig = process.env.MYSQL_URL
+    ? {
+        uri: process.env.MYSQL_URL,
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0,
+        namedPlaceholders: true,
+        connectTimeout: 10000,
+    }
+    : {
+        host: process.env.MYSQLHOST || process.env.DB_HOST || 'localhost',
+        port: parseInt(process.env.MYSQLPORT || process.env.DB_PORT || '3306'),
+        user: process.env.MYSQLUSER || process.env.DB_USER || 'root',
+        password: process.env.MYSQLPASSWORD || process.env.DB_PASSWORD || '',
+        database: process.env.MYSQLDATABASE || process.env.DB_NAME || 'chat_app_db',
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0,
+        namedPlaceholders: true,
+        connectTimeout: 10000,
+    };
+
+const pool = mysql.createPool(dbConfig);
 
 /**
  * Test database connection

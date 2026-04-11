@@ -1,8 +1,10 @@
-# Deployment dependencies
+# Dependencies
 node_modules/
 
 # Environment variables (never commit!)
 .env
+.env.local
+.env.production
 
 # Logs
 logs/
@@ -16,7 +18,12 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # Build
 dist/
 build/
+
+# Railway local
+.railway/

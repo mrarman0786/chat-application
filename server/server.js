@@ -161,25 +161,25 @@ initializeSocket(io, sessionMiddleware);
 const PORT = process.env.PORT || 3000;
 
 async function startServer() {
-    // Test database connection first
-    const dbConnected = await testConnection();
-
-    if (!dbConnected) {
-        console.error('❌ Cannot start server without database connection');
-        console.error('   Please ensure MySQL is running and check your .env configuration');
-        process.exit(1);
-    }
-
-    // Start the server
+    // Start the server immediately so healthchecks pass
     server.listen(PORT, () => {
         console.log('');
         console.log('============================================');
         console.log('🚀 CHAT APPLICATION SERVER STARTED');
         console.log('============================================');
-        console.log(`📡 Server running on: http://localhost:${PORT}`);
+        console.log(`📡 Server running on port: ${PORT}`);
         console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
         console.log('============================================');
         console.log('');
+
+        // Now test database connection in the background
+        testConnection().then(dbConnected => {
+            if (!dbConnected) {
+                console.error('⚠️  Database connection failed on startup.');
+                console.error('   The app is running but chat will not work.');
+                console.error('   Check your environment variables for database credentials.');
+            }
+        });
     });
 }
 

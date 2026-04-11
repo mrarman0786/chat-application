@@ -30,11 +30,11 @@ const dbConfig = process.env.MYSQL_URL
         connectTimeout: 10000,
     }
     : {
-        host: process.env.MYSQLHOST || process.env.DB_HOST || 'localhost',
-        port: parseInt(process.env.MYSQLPORT || process.env.DB_PORT || '3306'),
-        user: process.env.MYSQLUSER || process.env.DB_USER || 'root',
-        password: process.env.MYSQLPASSWORD || process.env.DB_PASSWORD || '',
-        database: process.env.MYSQLDATABASE || process.env.DB_NAME || 'chat_app_db',
+        host: process.env.MYSQLHOST || process.env.MYSQL_HOST || process.env.DB_HOST || 'localhost',
+        port: parseInt(process.env.MYSQLPORT || process.env.MYSQL_PORT || process.env.DB_PORT || '3306'),
+        user: process.env.MYSQLUSER || process.env.MYSQL_USER || process.env.DB_USER || 'root',
+        password: process.env.MYSQLPASSWORD || process.env.MYSQL_PASSWORD || process.env.DB_PASSWORD || '',
+        database: process.env.MYSQLDATABASE || process.env.MYSQL_DATABASE || process.env.DB_NAME || 'chat_app_db',
         waitForConnections: true,
         connectionLimit: 10,
         queueLimit: 0,
@@ -50,10 +50,10 @@ const pool = mysql.createPool(dbConfig);
  */
 async function testConnection() {
     // Log resolved config for debugging
-    const resolvedHost = process.env.MYSQLHOST || process.env.DB_HOST || 'localhost';
-    const resolvedPort = process.env.MYSQLPORT || process.env.DB_PORT || '3306';
-    const resolvedUser = process.env.MYSQLUSER || process.env.DB_USER || 'root';
-    const resolvedDb = process.env.MYSQLDATABASE || process.env.DB_NAME || 'chat_app_db';
+    const resolvedHost = process.env.MYSQLHOST || process.env.MYSQL_HOST || process.env.DB_HOST || 'localhost';
+    const resolvedPort = process.env.MYSQLPORT || process.env.MYSQL_PORT || process.env.DB_PORT || '3306';
+    const resolvedUser = process.env.MYSQLUSER || process.env.MYSQL_USER || process.env.DB_USER || 'root';
+    const resolvedDb = process.env.MYSQLDATABASE || process.env.MYSQL_DATABASE || process.env.DB_NAME || 'chat_app_db';
     const usingUrl = !!process.env.MYSQL_URL;
 
     console.log('📊 Database Configuration:');

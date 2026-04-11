@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Real-Time Chat Application - Login and Register">
+    
+    <title>ChatApp - Login</title>
+    
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="css/style.css">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="auth-page">
+    <!-- 
+    ============================================
+    AUTHENTICATION PAGE
+    ============================================
+    Contains Login and Register forms with toggle
+    
+    VIVA EXPLANATION:
+    - Single page with two forms
+    - JavaScript toggles between forms
+    - Form validation before submission
+    - Fetch API for AJAX requests
+    ============================================
+    -->
+    
+    <div class="auth-container">
+        <!-- Logo and Title -->
+        <div class="auth-header">
+            <div class="logo">
+                <span class="logo-icon">💬</span>
+                <h1>ChatApp</h1>
+            </div>
+            <p class="tagline">Real-time messaging made simple</p>
+        </div>
+        
+        <!-- Form Tabs -->
+        <div class="auth-tabs">
+            <button class="tab-btn active" data-tab="login">Login</button>
+            <button class="tab-btn" data-tab="register">Register</button>
+        </div>
+        
+        <!-- Error/Success Message Display -->
+        <div id="message-container" class="message-container hidden">
+            <p id="message-text"></p>
+        </div>
+        
+        <!-- Login Form -->
+        <form id="login-form" class="auth-form active">
+            <div class="form-group">
+                <label for="login-username">Username</label>
+                <input 
+                    type="text" 
+                    id="login-username" 
+                    name="username" 
+                    placeholder="Enter your username"
+                    autocomplete="username"
+                    required
+                >
+            </div>
+            
+            <div class="form-group">
+                <label for="login-password">Password</label>
+                <input 
+                    type="password" 
+                    id="login-password" 
+                    name="password" 
+                    placeholder="Enter your password"
+                    autocomplete="current-password"
+                    required
+                >
+            </div>
+            
+            <button type="submit" class="submit-btn" id="login-btn">
+                <span class="btn-text">Login</span>
+                <span class="btn-loader hidden"></span>
+            </button>
+        </form>
+        
+        <!-- Register Form -->
+        <form id="register-form" class="auth-form">
+            <div class="form-group">
+                <label for="register-username">Username</label>
+                <input 
+                    type="text" 
+                    id="register-username" 
+                    name="username" 
+                    placeholder="Choose a username"
+                    autocomplete="username"
+                    minlength="3"
+                    maxlength="50"
+                    required
+                >
+                <span class="input-hint">3-50 characters</span>
+            </div>
+            
+            <div class="form-group">
+                <label for="register-email">Email</label>
+                <input 
+                    type="email" 
+                    id="register-email" 
+                    name="email" 
+                    placeholder="Enter your email"
+                    autocomplete="email"
+                    required
+                >
+            </div>
+            
+            <div class="form-group">
+                <label for="register-password">Password</label>
+                <input 
+                    type="password" 
+                    id="register-password" 
+                    name="password" 
+                    placeholder="Create a password"
+                    autocomplete="new-password"
+                    minlength="6"
+                    required
+                >
+                <span class="input-hint">Minimum 6 characters</span>
+            </div>
+            
+            <button type="submit" class="submit-btn" id="register-btn">
+                <span class="btn-text">Create Account</span>
+                <span class="btn-loader hidden"></span>
+            </button>
+        </form>
+        
+        <!-- Footer -->
+        <div class="auth-footer">
+            <p>Secure real-time messaging</p>
+        </div>
+    </div>
+    
+    <!-- Animation Background -->
+    <div class="bg-animation">
+        <div class="bubble"></div>
+        <div class="bubble"></div>
+        <div class="bubble"></div>
+        <div class="bubble"></div>
+        <div class="bubble"></div>
+    </div>
+    
+    <!-- Auth JavaScript -->
+    <script src="js/auth.js"></script>
+</body>
+</html>

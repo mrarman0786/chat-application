@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ChatApp - Real-Time Chat with Private Messaging & AI Assistant">
+    <title>ChatApp - Chat</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body class="chat-page">
+    <div class="app-container">
+        <!-- ============================================
+             LEFT SIDEBAR - Users, Chats, AI
+             ============================================ -->
+        <aside class="sidebar" id="sidebar">
+            <!-- Sidebar Header -->
+            <div class="sidebar-header">
+                <div class="sidebar-logo">
+                    <span>💬</span>
+                    <h2>ChatApp</h2>
+                </div>
+                <div class="sidebar-actions">
+                    <button class="icon-btn" id="toggle-sidebar" title="Toggle sidebar">☰</button>
+                </div>
+            </div>
+
+            <!-- User Info -->
+            <div class="sidebar-user-info">
+                <img class="user-avatar-img" id="current-user-avatar" src="" alt=""
+                    onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
+                <span class="user-avatar" id="current-user-avatar-fallback">👤</span>
+                <span class="username" id="current-username">Loading...</span>
+                <span class="admin-badge hidden" id="admin-badge">⭐</span>
+                <button class="icon-btn upload-avatar-btn" id="upload-avatar-btn"
+                    title="Change Profile Picture">📷</button>
+                <input type="file" id="avatar-file-input" accept="image/*" style="display:none">
+                <button class="icon-btn logout-btn" id="logout-btn" title="Logout">✕</button>
+            </div>
+
+            <!-- Search -->
+            <div class="sidebar-search">
+                <input type="text" id="user-search" placeholder="🔍 Search users..." autocomplete="off">
+            </div>
+
+            <!-- Chat Tabs -->
+            <div class="sidebar-tabs">
+                <button class="sidebar-tab active" data-tab="chats" id="tab-chats">
+                    <span>💬</span> Chats
+                </button>
+                <button class="sidebar-tab" data-tab="users" id="tab-users">
+                    <span>👥</span> Users
+                </button>
+                <button class="sidebar-tab" data-tab="global" id="tab-global">
+                    <span>🌐</span> Global
+                </button>
+            </div>
+
+            <!-- Chat List (Private Chats + AI) -->
+            <div class="sidebar-content active" id="content-chats">
+                <!-- AI Assistant Entry -->
+                <div class="chat-item ai-chat-item" id="ai-chat-item" data-chat="ai">
+                    <div class="chat-avatar ai-avatar">🤖</div>
+                    <div class="chat-item-info">
+                        <div class="chat-item-name">AI Assistant</div>
+                        <div class="chat-item-preview">Ask me anything! Type /help</div>
+                    </div>
+                    <div class="chat-item-meta">
+                        <span class="ai-label">AI</span>
+                    </div>
+                </div>
+                <div class="divider"></div>
+                <!-- Private chats dynamically added -->
+                <div id="private-chat-list"></div>
+                <div class="empty-state" id="no-chats-msg">
+                    <p>No private chats yet</p>
+                    <small>Click a user in the Users tab to start chatting</small>
+                </div>
+            </div>
+
+            <!-- Users List -->
+            <div class="sidebar-content" id="content-users">
+                <div id="users-list"></div>
+                <div class="empty-state" id="no-users-msg">
+                    <p>No other users found</p>
+                </div>
+            </div>
+
+            <!-- Global Chat Tab -->
+            <div class="sidebar-content" id="content-global">
+                <div class="chat-item global-chat-item active-chat" id="global-chat-item" data-chat="global">
+                    <div class="chat-avatar global-avatar">🌐</div>
+                    <div class="chat-item-info">
+                        <div class="chat-item-name">Global Chat</div>
+                        <div class="chat-item-preview">Chat with everyone</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ============================================
+             RIGHT PANEL - Active Chat
+             ============================================ -->
+        <main class="chat-panel" id="chat-panel">
+            <!-- Chat Header -->
+            <header class="chat-header" id="chat-header">
+                <button class="icon-btn back-btn" id="back-btn" title="Back to sidebar">←</button>
+                <div class="chat-header-info">
+                    <div class="chat-header-avatar" id="chat-header-avatar">🌐</div>
+                    <div class="chat-header-details">
+                        <span class="chat-header-name" id="chat-header-name">Global Chat</span>
+                        <span class="chat-header-status" id="chat-header-status">
+                            <span class="status-dot connected"></span> Connected
+                        </span>
+                    </div>
+                </div>
+                <div class="chat-header-actions">
+                    <!-- Summarize (global only) -->
+                    <button class="feature-btn" id="summarize-btn" title="Summarize Chat">
+                        <span>📊</span> <span class="btn-label">Summary</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Topic Filter Bar (global only) -->
+            <div class="topic-filter-bar" id="topic-filter-bar">
+                <span class="filter-label">🏷️ Filter:</span>
+                <div class="filter-pills" id="filter-pills">
+                    <button class="filter-pill active" data-topic="all">All</button>
+                </div>
+            </div>
+
+            <!-- Messages Area -->
+            <div class="messages-container" id="messages-container">
+                <div class="system-message" id="welcome-message">
+                    <p>👋 Welcome! Select a chat from the sidebar to begin.</p>
+                </div>
+            </div>
+
+            <!-- Typing Indicator -->
+            <div class="typing-indicator hidden" id="typing-indicator">
+                <span class="typing-text"></span>
+                <span class="typing-dots"><span></span><span></span><span></span></span>
+            </div>
+
+            <!-- Feature Controls (Mood + Topics + Anon) -->
+            <div class="feature-controls" id="feature-controls">
+                <div class="mood-selector">
+                    <span class="control-label">Mood:</span>
+                    <div class="mood-options">
+                        <button class="mood-btn active" data-mood="happy" title="Happy">😊</button>
+                        <button class="mood-btn" data-mood="sad" title="Sad">😢</button>
+                        <button class="mood-btn" data-mood="angry" title="Angry">😡</button>
+                        <button class="mood-btn" data-mood="calm" title="Calm">😌</button>
+                        <button class="mood-btn" data-mood="excited" title="Excited">🤩</button>
+                    </div>
+                </div>
+                <div class="topic-input-wrapper">
+                    <span class="control-label">Topics:</span>
+                    <input type="text" id="topic-input" class="topic-input" placeholder="#tag..." maxlength="200">
+                </div>
+                <div class="anonymous-toggle-wrapper" id="anonymous-toggle-wrapper">
+                    <span class="control-label">🕵️ Anon:</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="anonymous-toggle">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Message Input -->
+            <footer class="chat-footer">
+                <!-- Upload Progress Bar -->
+                <div class="upload-progress-bar hidden" id="upload-progress-bar">
+                    <div class="upload-progress-fill" id="upload-progress-fill"></div>
+                    <span class="upload-progress-text" id="upload-progress-text">Uploading...</span>
+                </div>
+                <!-- File Preview -->
+                <div class="file-preview-bar hidden" id="file-preview-bar">
+                    <div class="file-preview-content" id="file-preview-content"></div>
+                    <button class="file-preview-cancel" id="file-preview-cancel">✕</button>
+                </div>
+                <form class="message-form" id="message-form">
+                    <div class="input-wrapper">
+                        <button type="button" class="attach-btn" id="attach-btn" title="Attach File">
+                            <span>📎</span>
+                        </button>
+                        <input type="file" id="chat-file-input"
+                            accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip,.rar,.xlsx,.pptx,.csv"
+                            style="display:none">
+                        <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off"
+                            maxlength="1000">
+                    </div>
+                    <button type="submit" class="send-btn" id="send-btn" title="Send">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                        </svg>
+                    </button>
+                </form>
+            </footer>
+        </main>
+    </div>
+
+    <!-- Summary Modal -->
+    <div class="modal-overlay hidden" id="summary-modal">
+        <div class="modal-content summary-modal-content">
+            <div class="modal-header">
+                <h2>📊 Chat Summary</h2>
+                <button class="modal-close" id="summary-close">&times;</button>
+            </div>
+            <div class="modal-body" id="summary-body">
+                <div class="summary-loading" id="summary-loading">
+                    <div class="summary-spinner"></div>
+                    <p>Analyzing messages...</p>
+                </div>
+                <div class="summary-results hidden" id="summary-results"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reveal Modal -->
+    <div class="modal-overlay hidden" id="reveal-modal">
+        <div class="modal-content reveal-modal-content">
+            <div class="modal-header">
+                <h2>🔍 Reveal Sender</h2>
+                <button class="modal-close" id="reveal-close">&times;</button>
+            </div>
+            <div class="modal-body" id="reveal-body">
+                <p>Real sender: <strong id="reveal-username">—</strong></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image Viewer Modal -->
+    <div class="modal-overlay hidden" id="image-viewer-modal">
+        <div class="image-viewer-content">
+            <button class="modal-close image-viewer-close" id="image-viewer-close">&times;</button>
+            <img id="image-viewer-img" src="" alt="Full size image">
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="js/chat.js"></script>
+</body>
+
+</html>

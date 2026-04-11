@@ -2,19 +2,12 @@
  * ============================================
  * AUTHENTICATION ROUTES
  * ============================================
- * 
- * This module handles all authentication-related API endpoints:
- * - POST /api/auth/register - User registration
- * - POST /api/auth/login - User login
- * - POST /api/auth/logout - User logout
- * - GET /api/auth/check - Check authentication status
- * 
- * VIVA EXPLANATION:
- * - All endpoints return JSON responses
- * - Passwords are hashed before storage
- * - Sessions are created on successful login
- * - Prepared statements prevent SQL injection
- * 
+ *
+ * POST /api/auth/register - User registration
+ * POST /api/auth/login    - User login
+ * POST /api/auth/logout   - User logout
+ * GET  /api/auth/check    - Check auth status
+ *
  * ============================================
  */
 

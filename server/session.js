@@ -2,16 +2,9 @@
  * ============================================
  * SESSION CONFIGURATION MODULE
  * ============================================
- * 
- * This module configures express-session for user authentication.
- * Sessions are used to maintain user login state across requests.
- * 
- * VIVA EXPLANATION:
- * - Sessions store user data on the server side
- * - A session ID is sent to the client via cookie
- * - This is more secure than storing data in cookies directly
- * - Session-based auth is stateful (unlike JWT which is stateless)
- * 
+ *
+ * Configures express-session for user authentication.
+ *
  * ============================================
  */
 
@@ -58,21 +51,5 @@ const sessionMiddleware = session({
     // Session name (default is 'connect.sid')
     name: 'chatapp.sid'
 });
-
-/**
- * VIVA EXPLANATION - Session Flow:
- * 
- * 1. User logs in with valid credentials
- * 2. Server creates a session and stores user data
- * 3. Session ID is sent to client as a cookie
- * 4. Client includes cookie in subsequent requests
- * 5. Server validates session ID and retrieves user data
- * 6. On logout, session is destroyed
- * 
- * Security considerations:
- * - httpOnly prevents XSS attacks from stealing session
- * - secure ensures cookie only sent over HTTPS
- * - sameSite prevents CSRF attacks
- */
 
 module.exports = sessionMiddleware;

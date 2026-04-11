@@ -2,18 +2,10 @@
  * ============================================
  * DATABASE CONNECTION MODULE
  * ============================================
- * 
- * This module creates and exports a MySQL connection pool.
- * Using a pool instead of single connection provides:
- * - Better performance through connection reuse
- * - Automatic connection management
- * - Connection limit handling
- * 
- * VIVA EXPLANATION:
- * - We use mysql2/promise for async/await support
- * - Connection pooling is essential for scalability
- * - Prepared statements prevent SQL injection
- * 
+ *
+ * Creates and exports a MySQL connection pool.
+ * Supports Railway, MYSQL_URL, and custom DB_* env vars.
+ *
  * ============================================
  */
 
@@ -74,15 +66,9 @@ async function testConnection() {
 
 /**
  * Execute a query with prepared statements
- * This is the main function used throughout the application
- * 
  * @param {string} sql - SQL query with placeholders
  * @param {array} params - Parameters to replace placeholders
  * @returns {Promise<array>} Query results
- * 
- * VIVA EXPLANATION:
- * Prepared statements prevent SQL injection by separating
- * the query structure from the data values.
  */
 async function query(sql, params = []) {
     try {

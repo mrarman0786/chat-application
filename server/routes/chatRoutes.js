@@ -2,22 +2,14 @@
  * ============================================
  * CHAT ROUTES
  * ============================================
- * 
- * This module handles chat-related API endpoints:
- * - GET /api/chat/messages - Fetch message history (with topic filter)
- * - GET /api/chat/user - Get current user info
- * - GET /api/chat/stats - Get chat statistics
- * - POST /api/chat/summarize - AI chat summary
- * - POST /api/chat/reveal-sender - Reveal anonymous sender (admin only)
- * 
- * All routes are protected by authentication middleware
- * 
- * VIVA EXPLANATION:
- * - Messages are loaded from database with pagination support
- * - Topic filtering uses SQL LIKE for comma-separated values
- * - AI summarization uses basic NLP (keyword frequency + action detection)
- * - Anonymous reveal is restricted to the first registered user (admin)
- * 
+ *
+ * GET  /api/chat/messages      - Message history
+ * GET  /api/chat/user           - Current user info
+ * GET  /api/chat/stats          - Chat statistics
+ * POST /api/chat/summarize      - AI chat summary
+ * POST /api/chat/reveal-sender  - Reveal anonymous sender
+ * GET  /api/chat/topics         - Unique topic list
+ *
  * ============================================
  */
 
@@ -38,10 +30,6 @@ const { isAuthenticated } = require('../auth');
  * - topic: Filter by topic tag (optional)
  * 
  * Response: { success, messages }
- * 
- * VIVA EXPLANATION:
- * Topic filtering uses SQL LIKE operator to search within
- * comma-separated tags stored in the topics column.
  */
 router.get('/messages', isAuthenticated, async (req, res) => {
     try {
@@ -174,11 +162,6 @@ router.get('/stats', isAuthenticated, async (req, res) => {
  * 
  * Request body: { limit } (default: 50)
  * Response: { success, summary, keywords, keyPoints, actionItems }
- * 
- * VIVA EXPLANATION:
- * This endpoint implements basic NLP for chat summarization.
- * It uses keyword frequency analysis and action verb pattern
- * matching to extract meaningful summaries without external AI APIs.
  */
 router.post('/summarize', isAuthenticated, async (req, res) => {
     try {
@@ -224,10 +207,6 @@ router.post('/summarize', isAuthenticated, async (req, res) => {
  * 
  * Request body: { messageId }
  * Response: { success, realSender }
- * 
- * VIVA EXPLANATION:
- * Only the admin (first registered user) can reveal anonymous senders.
- * This provides accountability while preserving anonymity for regular users.
  */
 router.post('/reveal-sender', isAuthenticated, async (req, res) => {
     try {

@@ -2,20 +2,15 @@
  * ============================================
  * PRIVATE CHAT ROUTES
  * ============================================
- * 
+ *
  * Endpoints for 1-to-1 private messaging:
- * - POST /api/chats/create-private - Create/get private chat
- * - GET /api/chats/my-chats - List user's private chats
- * - GET /api/chats/private/:userId - Get chat with specific user
- * - GET /api/chats/:chatId/messages - Get messages in a chat
- * - POST /api/chats/:chatId/seen - Mark messages as seen
- * - GET /api/chats/users - Get all users for sidebar
- * 
- * VIVA EXPLANATION:
- * Private chats use a junction table (chat_participants) 
- * to link exactly 2 users. When creating a private chat,
- * we first check if one already exists between the two users.
- * 
+ * POST /api/chats/create-private  - Create/get private chat
+ * GET  /api/chats/my-chats        - List user's chats
+ * GET  /api/chats/private/:userId - Get chat with user
+ * GET  /api/chats/:chatId/messages - Get chat messages
+ * POST /api/chats/:chatId/seen    - Mark messages as seen
+ * GET  /api/chats/users           - All users for sidebar
+ *
  * ============================================
  */
 
@@ -46,10 +41,6 @@ router.get('/users', isAuthenticated, async (req, res) => {
 /**
  * POST /api/chats/create-private
  * Create a private chat between two users, or return existing one
- * 
- * VIVA EXPLANATION:
- * Uses a subquery to find chats where both users are participants
- * and the chat type is 'private'. This prevents duplicate chats.
  */
 router.post('/create-private', isAuthenticated, async (req, res) => {
     try {

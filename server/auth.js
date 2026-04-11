@@ -2,36 +2,21 @@
  * ============================================
  * AUTHENTICATION MODULE
  * ============================================
- * 
- * This module provides authentication utilities:
- * - Password hashing with bcrypt
- * - Password comparison
- * - Authentication middleware for route protection
- * 
- * VIVA EXPLANATION:
- * - bcrypt uses salt rounds to make hashing slow (prevents brute force)
- * - Each password gets a unique salt (prevents rainbow table attacks)
- * - Middleware checks session before allowing access to protected routes
- * 
+ *
+ * Password hashing, comparison, and route
+ * protection middleware using bcrypt.
+ *
  * ============================================
  */
 
 const bcrypt = require('bcryptjs');
 
-// Number of salt rounds for bcrypt hashing
-// Higher = more secure but slower (10-12 is recommended)
 const SALT_ROUNDS = 10;
 
 /**
  * Hash a password using bcrypt
- * 
  * @param {string} password - Plain text password
  * @returns {Promise<string>} Hashed password
- * 
- * VIVA EXPLANATION:
- * bcrypt.hash() automatically generates a salt and combines it
- * with the password before hashing. The salt is stored in the
- * resulting hash string, so we don't need to store it separately.
  */
 async function hashPassword(password) {
     try {
@@ -45,15 +30,9 @@ async function hashPassword(password) {
 
 /**
  * Compare a plain password with a hashed password
- * 
  * @param {string} password - Plain text password to verify
  * @param {string} hashedPassword - Stored hashed password
  * @returns {Promise<boolean>} True if passwords match
- * 
- * VIVA EXPLANATION:
- * bcrypt.compare() extracts the salt from the hashed password,
- * hashes the plain password with that salt, and compares the results.
- * This is done in constant time to prevent timing attacks.
  */
 async function comparePassword(password, hashedPassword) {
     try {
@@ -67,16 +46,9 @@ async function comparePassword(password, hashedPassword) {
 
 /**
  * Middleware to check if user is authenticated
- * Use this to protect routes that require login
- * 
  * @param {object} req - Express request object
  * @param {object} res - Express response object
  * @param {function} next - Express next middleware function
- * 
- * VIVA EXPLANATION:
- * This middleware checks if a valid session exists with user data.
- * If authenticated, it calls next() to proceed to the route handler.
- * If not authenticated, it returns 401 Unauthorized status.
  */
 function isAuthenticated(req, res, next) {
     // Check if session exists and has user data

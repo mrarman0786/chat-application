@@ -2,22 +2,11 @@
  * ============================================
  * MAIN SERVER FILE
  * ============================================
- * 
- * This is the entry point of the application.
- * It sets up:
- * - Express server with middleware
- * - Static file serving
- * - API routes
- * - Socket.IO for real-time communication
- * - Database connection
- * 
- * VIVA EXPLANATION:
- * The server uses a layered architecture:
- * 1. Express for HTTP handling and routing
- * 2. Socket.IO for WebSocket communication
- * 3. MySQL for data persistence
- * 4. Session middleware for authentication
- * 
+ *
+ * Entry point — sets up Express, Socket.IO,
+ * middleware, static files, API routes, and
+ * database connection.
+ *
  * ============================================
  */
 

@@ -2,16 +2,10 @@
  * ============================================
  * AI CHATBOT ROUTES
  * ============================================
- * 
- * Smart assistant integrated into the chat system.
- * Supports rule-based responses and slash commands.
- * Structured for easy OpenAI/LLM integration.
- * 
- * VIVA EXPLANATION:
- * The AI chatbot uses pattern matching and command parsing
- * to provide intelligent responses. It can summarize chats,
- * do math, generate notes, and answer common queries.
- * 
+ *
+ * Rule-based AI assistant with slash commands,
+ * pattern matching, and chat summarization.
+ *
  * ============================================
  */
 
@@ -55,14 +49,6 @@ router.post('/chat', isAuthenticated, async (req, res) => {
 
 /**
  * Generate AI response based on user message
- * 
- * VIVA EXPLANATION:
- * Uses a rule-based approach with:
- * 1. Slash command parsing (/help, /summarize, /math, /notes)
- * 2. Keyword pattern matching for common queries
- * 3. Fallback general responses
- * 
- * Can be replaced with OpenAI API by modifying this function.
  */
 async function generateAIResponse(message, chatId, userId) {
     const lowerMsg = message.toLowerCase().trim();

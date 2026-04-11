@@ -2,20 +2,12 @@
  * ============================================
  * SOCKET.IO MODULE (Enhanced)
  * ============================================
- * 
+ *
  * Handles real-time communication:
- * - Global chat (mood, topics, anonymous)
- * - Private 1-to-1 chat
- * - AI chatbot integration
- * - Online user tracking
- * - Typing indicators (global + private)
+ * - Global chat, private 1-to-1 chat, AI chatbot
+ * - Online user tracking, typing indicators
  * - Seen/delivered status
- * 
- * VIVA EXPLANATION:
- * Socket.IO enables bidirectional event-based communication.
- * Private chats use socket rooms (socket.join(chatId)).
- * Online status is tracked via a Map of userId -> socketId.
- * 
+ *
  * ============================================
  */
 

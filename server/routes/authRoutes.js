@@ -134,8 +134,8 @@ router.post('/login', async (req, res) => {
         // FIND USER IN DATABASE
         // ============================================
         const users = await query(
-            'SELECT id, username, email, password, avatar FROM users WHERE username = ?',
-            [username]
+            'SELECT id, username, email, password, avatar FROM users WHERE username = ? OR email = ?',
+            [username, username] // the 'username' variable contains either the username or the email
         );
 
         // Check if user exists

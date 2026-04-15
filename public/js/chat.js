@@ -961,15 +961,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function openProfileModal() {
         // Populate current values
         profileUsernameInput.value = currentUser.username || '';
-        if (currentUser.avatar) {
-            profileAvatarPreview.src = currentUser.avatar;
-            profileAvatarPreview.style.display = 'block';
-            profileAvatarFallback.style.display = 'none';
-        } else {
-            profileAvatarPreview.style.display = 'none';
-            profileAvatarFallback.style.display = 'flex';
-        }
-        pendingAvatarFile = null;
         profileStatus.classList.add('hidden');
         profileModal.classList.remove('hidden');
         profileUsernameInput.focus();
@@ -978,7 +969,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Close profile modal
     function closeProfileModal() {
         profileModal.classList.add('hidden');
-        pendingAvatarFile = null;
     }
 
     // Open modal triggers
@@ -996,24 +986,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (profileModal) profileModal.addEventListener('click', (e) => { if (e.target === profileModal) closeProfileModal(); });
 
     // Click avatar to pick image
-    if (profileAvatarWrapper) profileAvatarWrapper.addEventListener('click', () => profileAvatarInput.click());
-
-    // Preview selected avatar
-    if (profileAvatarInput) profileAvatarInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        if (!file.type.startsWith('image/')) { alert('Please select an image'); return; }
-        if (file.size > 5 * 1024 * 1024) { alert('Image too large. Max 5MB.'); return; }
-
-        pendingAvatarFile = file;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            profileAvatarPreview.src = ev.target.result;
-            profileAvatarPreview.style.display = 'block';
-            profileAvatarFallback.style.display = 'none';
-        };
-        reader.readAsDataURL(file);
-    });
+    // Avatar upload removed
 
     // Show status message
     function showProfileStatus(msg, type) {
@@ -1032,36 +1005,7 @@ document.addEventListener('DOMContentLoaded', () => {
         profileStatus.classList.add('hidden');
 
         try {
-            // 1. Upload avatar if changed
-            if (pendingAvatarFile) {
-                const formData = new FormData();
-                formData.append('avatar', pendingAvatarFile);
-
-                const avatarResp = await fetch('/api/upload/avatar', {
-                    method: 'POST',
-                    body: formData,
-                    credentials: 'include'
-                });
-                const avatarData = await avatarResp.json();
-
-                if (avatarData.success) {
-                    currentUser.avatar = avatarData.avatar;
-                    // Update sidebar avatar
-                    const sidebarAvatar = document.getElementById('current-user-avatar');
-                    const sidebarFallback = document.getElementById('current-user-avatar-fallback');
-                    sidebarAvatar.src = avatarData.avatar;
-                    sidebarAvatar.style.display = 'inline';
-                    sidebarFallback.style.display = 'none';
-                } else {
-                    showProfileStatus('Avatar upload failed: ' + avatarData.message, 'error');
-                    profileSaveBtn.disabled = false;
-                    profileSaveBtn.textContent = 'Save Changes';
-                    return;
-                }
-                pendingAvatarFile = null;
-            }
-
-            // 2. Update username if changed
+            // Update username if changed
             if (usernameChanged) {
                 const nameResp = await fetch('/api/upload/update-username', {
                     method: 'PUT',

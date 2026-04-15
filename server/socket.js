@@ -13,8 +13,10 @@
 
 const { query } = require('./db');
 
-// Track online users: Map<userId, { socketId, username }>
-const onlineUsers = new Map();
+// Track online users: Map<userId, Set<socketId>>
+const onlineSockets = new Map();
+// Track usernames for online users: Map<userId, username>
+const onlineUsernames = new Map();
 
 /**
  * Initialize Socket.IO with session sharing
@@ -50,15 +52,21 @@ function initializeSocket(io, sessionMiddleware) {
         // ============================================
         // TRACK ONLINE STATUS
         // ============================================
-        onlineUsers.set(socket.userId, {
-            socketId: socket.id,
-            username: socket.username
-        });
+        // Handle multiple sockets per user
+        if (!onlineSockets.has(socket.userId)) {
+            onlineSockets.set(socket.userId, new Set());
+            onlineUsernames.set(socket.userId, socket.username);
+            
+            // First socket connection for this user - update DB
+            try {
+                await query('UPDATE users SET is_online = TRUE WHERE id = ?', [socket.userId]);
+            } catch (e) { console.error('Error updating online status:', e); }
+        }
+        
+        onlineSockets.get(socket.userId).add(socket.id);
 
-        // Update DB online status
-        try {
-            await query('UPDATE users SET is_online = TRUE WHERE id = ?', [socket.userId]);
-        } catch (e) { console.error('Error updating online status:', e); }
+        // Join a room unique to this user ID for multi-socket messaging
+        socket.join(`user_${socket.userId}`);
 
         // Broadcast updated online user list
         broadcastOnlineUsers(io);
@@ -230,9 +238,9 @@ function initializeSocket(io, sessionMiddleware) {
                 );
 
                 participants.forEach(p => {
-                    const otherUser = onlineUsers.get(p.user_id);
-                    if (otherUser) {
-                        io.to(otherUser.socketId).emit('new-message-notification', {
+                    if (onlineSockets.has(p.user_id)) {
+                        // Send to all sockets for this user
+                        io.to(`user_${p.user_id}`).emit('new-message-notification', {
                             chatId,
                             senderUsername: isAnonymous ? 'Anonymous User' : socket.username,
                             preview: message.trim().substring(0, 50)
@@ -490,18 +498,26 @@ function initializeSocket(io, sessionMiddleware) {
         socket.on('disconnect', async (reason) => {
             console.log(`❌ User disconnected: ${socket.username} (Reason: ${reason})`);
 
-            onlineUsers.delete(socket.userId);
+            const sockets = onlineSockets.get(socket.userId);
+            if (sockets) {
+                sockets.delete(socket.id);
+                if (sockets.size === 0) {
+                    // Last socket for this user has disconnected
+                    onlineSockets.delete(socket.userId);
+                    onlineUsernames.delete(socket.userId);
 
-            try {
-                await query('UPDATE users SET is_online = FALSE, last_seen = NOW() WHERE id = ?', [socket.userId]);
-            } catch (e) { console.error('Error updating offline status:', e); }
+                    try {
+                        await query('UPDATE users SET is_online = FALSE, last_seen = NOW() WHERE id = ?', [socket.userId]);
+                    } catch (e) { console.error('Error updating offline status:', e); }
+                    
+                    socket.broadcast.emit('user left', {
+                        username: socket.username,
+                        timestamp: new Date()
+                    });
+                }
+            }
 
             broadcastOnlineUsers(io);
-
-            socket.broadcast.emit('user left', {
-                username: socket.username,
-                timestamp: new Date()
-            });
         });
     });
 }
@@ -512,8 +528,8 @@ function initializeSocket(io, sessionMiddleware) {
 async function broadcastOnlineUsers(io) {
     const users = [];
     const userIds = [];
-    onlineUsers.forEach((value, key) => {
-        users.push({ userId: key, username: value.username, avatar: '' });
+    onlineSockets.forEach((value, key) => {
+        users.push({ userId: key, username: onlineUsernames.get(key), avatar: '' });
         userIds.push(key);
     });
     // Fetch avatars from DB

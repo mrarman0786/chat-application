@@ -155,14 +155,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Private chat messages
         socket.on('receive-private-message', (data) => {
-            if (activeChat.type === 'private' && activeChat.chatId === data.chat_id) {
+            const receivedChatId = Number(data.chat_id);
+            if (activeChat.type === 'private' && Number(activeChat.chatId) === receivedChatId) {
                 addMessage(data);
                 // Mark as seen
-                socket.emit('message-seen', { chatId: data.chat_id });
+                socket.emit('message-seen', { chatId: receivedChatId });
             } else {
                 // Increment unread
-                unreadCounts[data.chat_id] = (unreadCounts[data.chat_id] || 0) + 1;
-                updateChatItemBadge(data.chat_id, unreadCounts[data.chat_id]);
+                unreadCounts[receivedChatId] = (unreadCounts[receivedChatId] || 0) + 1;
+                updateChatItemBadge(receivedChatId, unreadCounts[receivedChatId]);
             }
         });
 
@@ -183,15 +184,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // New message notification (for unread badge)
         socket.on('new-message-notification', (data) => {
-            if (activeChat.chatId !== data.chatId) {
-                unreadCounts[data.chatId] = (unreadCounts[data.chatId] || 0) + 1;
-                updateChatItemBadge(data.chatId, unreadCounts[data.chatId]);
+            const receivedChatId = Number(data.chatId);
+            if (Number(activeChat.chatId) !== receivedChatId) {
+                unreadCounts[receivedChatId] = (unreadCounts[receivedChatId] || 0) + 1;
+                updateChatItemBadge(receivedChatId, unreadCounts[receivedChatId]);
             }
         });
 
         // Messages seen
         socket.on('messages-seen', (data) => {
-            if (activeChat.chatId === data.chatId) {
+            if (Number(activeChat.chatId) === Number(data.chatId)) {
                 document.querySelectorAll('.message.own .seen-status').forEach(el => {
                     el.textContent = '✓✓';
                     el.classList.add('seen');
@@ -224,7 +226,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Typing — private
         socket.on('private-typing-status', (data) => {
-            if (activeChat.type === 'private' && activeChat.chatId === data.chatId) {
+            if (activeChat.type === 'private' && Number(activeChat.chatId) === Number(data.chatId)) {
                 if (data.isTyping) showTyping(data.username); else hideTyping();
             }
         });
@@ -417,12 +419,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // OPEN PRIVATE CHAT
     // ============================================
     function openPrivateChat(chatId, userId, username) {
+        const numericChatId = Number(chatId);
         // Leave previous private chat room
         if (activeChat.type === 'private' && activeChat.chatId) {
             socket.emit('leave-private-chat', { chatId: activeChat.chatId });
         }
 
-        activeChat = { type: 'private', chatId, userId, username };
+        activeChat = { type: 'private', chatId: numericChatId, userId, username };
         clearMessages();
         hideTyping();
 
@@ -640,6 +643,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // ============================================
     messageInput.addEventListener('input', () => {
         if (!socket || !socket.connected) return;
+        // Don't show typing indicator when anonymous mode is on
+        if (isAnonymous) return;
         if (activeChat.type === 'global') {
             socket.emit('typing');
         } else if (activeChat.type === 'private') {
@@ -932,168 +937,170 @@ document.addEventListener('DOMContentLoaded', () => {
     if (imageViewerClose) imageViewerClose.addEventListener('click', () => imageViewerModal.classList.add('hidden'));
     if (imageViewerModal) imageViewerModal.addEventListener('click', (e) => { if (e.target === imageViewerModal) imageViewerModal.classList.add('hidden'); });
 
-    // ============================================
-    // FILE UPLOAD — ATTACH BUTTON
-    // ============================================
-    const attachBtn = document.getElementById('attach-btn');
-    const chatFileInput = document.getElementById('chat-file-input');
-    const uploadProgressBar = document.getElementById('upload-progress-bar');
-    const uploadProgressFill = document.getElementById('upload-progress-fill');
-    const uploadProgressText = document.getElementById('upload-progress-text');
-    const filePreviewBar = document.getElementById('file-preview-bar');
-    const filePreviewContent = document.getElementById('file-preview-content');
-    const filePreviewCancel = document.getElementById('file-preview-cancel');
-
-    let pendingFile = null;
-
-    if (attachBtn) attachBtn.addEventListener('click', () => chatFileInput.click());
-
-    if (chatFileInput) chatFileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        if (file.size > 10 * 1024 * 1024) {
-            alert('File too large. Max 10MB.');
-            chatFileInput.value = '';
-            return;
-        }
-        pendingFile = file;
-        showFilePreview(file);
-    });
-
-    function showFilePreview(file) {
-        filePreviewBar.classList.remove('hidden');
-        if (file.type.startsWith('image/')) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                filePreviewContent.innerHTML = `<img src="${e.target.result}" class="file-preview-thumb" alt="preview"> <span>${escapeHtml(file.name)}</span>`;
-            };
-            reader.readAsDataURL(file);
-        } else {
-            const icon = file.type.startsWith('video/') ? '🎥' : '📁';
-            filePreviewContent.innerHTML = `<span>${icon} ${escapeHtml(file.name)} (${formatFileSize(file.size)})</span>`;
-        }
-    }
-
-    if (filePreviewCancel) filePreviewCancel.addEventListener('click', () => {
-        pendingFile = null;
-        filePreviewBar.classList.add('hidden');
-        chatFileInput.value = '';
-    });
-
-    // Override send to check for pending file
-    const origSubmitHandler = messageForm.onsubmit;
-    messageForm.addEventListener('submit', async (e) => {
-        if (pendingFile) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            await uploadAndSendFile(pendingFile);
-            pendingFile = null;
-            filePreviewBar.classList.add('hidden');
-            chatFileInput.value = '';
-            return false;
-        }
-    }, true); // use capture phase
-
-    async function uploadAndSendFile(file) {
-        uploadProgressBar.classList.remove('hidden');
-        uploadProgressFill.style.width = '30%';
-        uploadProgressText.textContent = 'Uploading...';
-
-        try {
-            const formData = new FormData();
-            formData.append('file', file);
-
-            uploadProgressFill.style.width = '60%';
-
-            const resp = await fetch('/api/upload/file', {
-                method: 'POST',
-                body: formData,
-                credentials: 'include'
-            });
-
-            const data = await resp.json();
-            if (!data.success) {
-                alert('Upload failed: ' + data.message);
-                uploadProgressBar.classList.add('hidden');
-                return;
-            }
-
-            uploadProgressFill.style.width = '90%';
-            uploadProgressText.textContent = 'Sending...';
-
-            const fileData = data.file;
-
-            if (activeChat.type === 'global') {
-                socket.emit('send-media-message', {
-                    fileUrl: fileData.url,
-                    fileName: fileData.name,
-                    fileSize: fileData.size,
-                    messageType: fileData.type,
-                    mood: selectedMood,
-                    topics: topicInput.value ? topicInput.value.split(',').map(t => t.trim().replace(/^#/, '')) : [],
-                    isAnonymous
-                });
-            } else if (activeChat.type === 'private') {
-                socket.emit('send-private-media', {
-                    chatId: activeChat.chatId,
-                    fileUrl: fileData.url,
-                    fileName: fileData.name,
-                    fileSize: fileData.size,
-                    messageType: fileData.type,
-                    mood: selectedMood
-                });
-            }
-
-            uploadProgressFill.style.width = '100%';
-            uploadProgressText.textContent = 'Sent!';
-            setTimeout(() => uploadProgressBar.classList.add('hidden'), 1500);
-
-        } catch (error) {
-            console.error('Upload error:', error);
-            alert('Upload failed. Please try again.');
-            uploadProgressBar.classList.add('hidden');
-        }
-    }
 
     // ============================================
-    // AVATAR UPLOAD
+    // PROFILE EDIT MODAL
     // ============================================
-    const uploadAvatarBtn = document.getElementById('upload-avatar-btn');
+    const profileModal = document.getElementById('profile-modal');
+    const profileModalClose = document.getElementById('profile-modal-close');
+    const profileCancelBtn = document.getElementById('profile-cancel-btn');
+    const profileSaveBtn = document.getElementById('profile-save-btn');
+    const profileAvatarWrapper = document.getElementById('profile-avatar-wrapper');
+    const profileAvatarInput = document.getElementById('profile-avatar-input');
+    const profileAvatarPreview = document.getElementById('profile-avatar-preview');
+    const profileAvatarFallback = document.getElementById('profile-avatar-fallback');
+    const profileUsernameInput = document.getElementById('profile-username-input');
+    const profileStatus = document.getElementById('profile-status');
+    const editProfileBtn = document.getElementById('edit-profile-btn');
+    const profileTrigger = document.getElementById('profile-trigger');
     const avatarFileInput = document.getElementById('avatar-file-input');
 
-    if (uploadAvatarBtn) uploadAvatarBtn.addEventListener('click', () => avatarFileInput.click());
+    let pendingAvatarFile = null;
 
-    if (avatarFileInput) avatarFileInput.addEventListener('change', async (e) => {
+    // Open profile modal
+    function openProfileModal() {
+        // Populate current values
+        profileUsernameInput.value = currentUser.username || '';
+        if (currentUser.avatar) {
+            profileAvatarPreview.src = currentUser.avatar;
+            profileAvatarPreview.style.display = 'block';
+            profileAvatarFallback.style.display = 'none';
+        } else {
+            profileAvatarPreview.style.display = 'none';
+            profileAvatarFallback.style.display = 'flex';
+        }
+        pendingAvatarFile = null;
+        profileStatus.classList.add('hidden');
+        profileModal.classList.remove('hidden');
+        profileUsernameInput.focus();
+    }
+
+    // Close profile modal
+    function closeProfileModal() {
+        profileModal.classList.add('hidden');
+        pendingAvatarFile = null;
+    }
+
+    // Open modal triggers
+    if (editProfileBtn) editProfileBtn.addEventListener('click', (e) => { e.stopPropagation(); openProfileModal(); });
+    if (profileTrigger) profileTrigger.addEventListener('click', (e) => {
+        // Don't open if clicking logout button
+        if (e.target.closest('.logout-btn')) return;
+        if (e.target.closest('.edit-profile-btn')) return;
+        openProfileModal();
+    });
+
+    // Close modal triggers
+    if (profileModalClose) profileModalClose.addEventListener('click', closeProfileModal);
+    if (profileCancelBtn) profileCancelBtn.addEventListener('click', closeProfileModal);
+    if (profileModal) profileModal.addEventListener('click', (e) => { if (e.target === profileModal) closeProfileModal(); });
+
+    // Click avatar to pick image
+    if (profileAvatarWrapper) profileAvatarWrapper.addEventListener('click', () => profileAvatarInput.click());
+
+    // Preview selected avatar
+    if (profileAvatarInput) profileAvatarInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
         if (!file.type.startsWith('image/')) { alert('Please select an image'); return; }
         if (file.size > 5 * 1024 * 1024) { alert('Image too large. Max 5MB.'); return; }
 
-        const formData = new FormData();
-        formData.append('avatar', file);
+        pendingAvatarFile = file;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            profileAvatarPreview.src = ev.target.result;
+            profileAvatarPreview.style.display = 'block';
+            profileAvatarFallback.style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // Show status message
+    function showProfileStatus(msg, type) {
+        profileStatus.textContent = msg;
+        profileStatus.className = `profile-status ${type}`;
+        profileStatus.classList.remove('hidden');
+    }
+
+    // Save profile changes
+    if (profileSaveBtn) profileSaveBtn.addEventListener('click', async () => {
+        const newUsername = profileUsernameInput.value.trim();
+        const usernameChanged = newUsername && newUsername !== currentUser.username;
+
+        profileSaveBtn.disabled = true;
+        profileSaveBtn.textContent = 'Saving...';
+        profileStatus.classList.add('hidden');
 
         try {
-            const resp = await fetch('/api/upload/avatar', {
-                method: 'POST',
-                body: formData,
-                credentials: 'include'
-            });
-            const data = await resp.json();
-            if (data.success) {
-                const avatarImg = document.getElementById('current-user-avatar');
-                const avatarFallback = document.getElementById('current-user-avatar-fallback');
-                avatarImg.src = data.avatar;
-                avatarImg.style.display = 'inline';
-                avatarFallback.style.display = 'none';
-                currentUser.avatar = data.avatar;
-            } else {
-                alert('Upload failed: ' + data.message);
+            // 1. Upload avatar if changed
+            if (pendingAvatarFile) {
+                const formData = new FormData();
+                formData.append('avatar', pendingAvatarFile);
+
+                const avatarResp = await fetch('/api/upload/avatar', {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'include'
+                });
+                const avatarData = await avatarResp.json();
+
+                if (avatarData.success) {
+                    currentUser.avatar = avatarData.avatar;
+                    // Update sidebar avatar
+                    const sidebarAvatar = document.getElementById('current-user-avatar');
+                    const sidebarFallback = document.getElementById('current-user-avatar-fallback');
+                    sidebarAvatar.src = avatarData.avatar;
+                    sidebarAvatar.style.display = 'inline';
+                    sidebarFallback.style.display = 'none';
+                } else {
+                    showProfileStatus('Avatar upload failed: ' + avatarData.message, 'error');
+                    profileSaveBtn.disabled = false;
+                    profileSaveBtn.textContent = 'Save Changes';
+                    return;
+                }
+                pendingAvatarFile = null;
             }
+
+            // 2. Update username if changed
+            if (usernameChanged) {
+                const nameResp = await fetch('/api/upload/update-username', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ username: newUsername })
+                });
+                const nameData = await nameResp.json();
+
+                if (nameData.success) {
+                    currentUser.username = nameData.username;
+                    document.getElementById('current-username').textContent = nameData.username;
+                } else {
+                    showProfileStatus(nameData.message || 'Failed to update name', 'error');
+                    profileSaveBtn.disabled = false;
+                    profileSaveBtn.textContent = 'Save Changes';
+                    return;
+                }
+            }
+
+            showProfileStatus('Profile updated successfully! ✅', 'success');
+            setTimeout(() => closeProfileModal(), 1200);
+
         } catch (error) {
-            alert('Upload failed. Please try again.');
+            console.error('Profile save error:', error);
+            showProfileStatus('Something went wrong. Please try again.', 'error');
         }
-        avatarFileInput.value = '';
+
+        profileSaveBtn.disabled = false;
+        profileSaveBtn.textContent = 'Save Changes';
     });
+
+    // Also handle Escape for profile modal
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !profileModal.classList.contains('hidden')) {
+            closeProfileModal();
+        }
+    });
+
 
     // ============================================
     // HELPER: Format file size

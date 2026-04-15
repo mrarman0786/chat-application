@@ -29,15 +29,15 @@
                 </div>
             </div>
 
-            <!-- User Info -->
-            <div class="sidebar-user-info">
+            <!-- User Info (clickable to open profile editor) -->
+            <div class="sidebar-user-info" id="profile-trigger" title="Click to edit profile" style="cursor:pointer;">
                 <img class="user-avatar-img" id="current-user-avatar" src="" alt=""
                     onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
                 <span class="user-avatar" id="current-user-avatar-fallback">👤</span>
                 <span class="username" id="current-username">Loading...</span>
                 <span class="admin-badge hidden" id="admin-badge">⭐</span>
-                <button class="icon-btn upload-avatar-btn" id="upload-avatar-btn"
-                    title="Change Profile Picture">📷</button>
+                <button class="icon-btn edit-profile-btn" id="edit-profile-btn"
+                    title="Edit Profile">✏️</button>
                 <input type="file" id="avatar-file-input" accept="image/*" style="display:none">
                 <button class="icon-btn logout-btn" id="logout-btn" title="Logout">✕</button>
             </div>
@@ -174,24 +174,8 @@
 
             <!-- Message Input -->
             <footer class="chat-footer">
-                <!-- Upload Progress Bar -->
-                <div class="upload-progress-bar hidden" id="upload-progress-bar">
-                    <div class="upload-progress-fill" id="upload-progress-fill"></div>
-                    <span class="upload-progress-text" id="upload-progress-text">Uploading...</span>
-                </div>
-                <!-- File Preview -->
-                <div class="file-preview-bar hidden" id="file-preview-bar">
-                    <div class="file-preview-content" id="file-preview-content"></div>
-                    <button class="file-preview-cancel" id="file-preview-cancel">✕</button>
-                </div>
                 <form class="message-form" id="message-form">
                     <div class="input-wrapper">
-                        <button type="button" class="attach-btn" id="attach-btn" title="Attach File">
-                            <span>📎</span>
-                        </button>
-                        <input type="file" id="chat-file-input"
-                            accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip,.rar,.xlsx,.pptx,.csv"
-                            style="display:none">
                         <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off"
                             maxlength="1000">
                     </div>
@@ -203,6 +187,41 @@
                 </form>
             </footer>
         </main>
+    </div>
+
+    <!-- Profile Edit Modal -->
+    <div class="modal-overlay hidden" id="profile-modal">
+        <div class="modal-content profile-modal-content">
+            <div class="modal-header">
+                <h2>✏️ Edit Profile</h2>
+                <button class="modal-close" id="profile-modal-close">&times;</button>
+            </div>
+            <div class="modal-body profile-modal-body">
+                <!-- Avatar Section -->
+                <div class="profile-avatar-section">
+                    <div class="profile-avatar-wrapper" id="profile-avatar-wrapper" title="Click to change picture">
+                        <img class="profile-avatar-preview" id="profile-avatar-preview" src="" alt="">
+                        <span class="profile-avatar-fallback" id="profile-avatar-fallback">👤</span>
+                        <div class="profile-avatar-overlay">📷 Change</div>
+                    </div>
+                    <input type="file" id="profile-avatar-input" accept="image/*" style="display:none">
+                    <p class="profile-avatar-hint">Click the picture to change it</p>
+                </div>
+                <!-- Username Section -->
+                <div class="profile-field">
+                    <label class="profile-field-label" for="profile-username-input">Display Name</label>
+                    <input type="text" id="profile-username-input" class="profile-input" placeholder="Enter new name..." maxlength="30" autocomplete="off">
+                    <span class="profile-field-hint">3-30 characters. Letters, numbers, spaces, hyphens, underscores.</span>
+                </div>
+                <!-- Status Message -->
+                <div class="profile-status hidden" id="profile-status"></div>
+                <!-- Action Buttons -->
+                <div class="profile-actions">
+                    <button class="profile-btn profile-btn-cancel" id="profile-cancel-btn">Cancel</button>
+                    <button class="profile-btn profile-btn-save" id="profile-save-btn">Save Changes</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Summary Modal -->

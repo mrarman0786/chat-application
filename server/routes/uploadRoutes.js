@@ -127,6 +127,59 @@ router.put('/profile', requireAuth, async (req, res) => {
 });
 
 /**
+ * PUT /api/upload/update-username
+ * Change the user's display name
+ */
+router.put('/update-username', requireAuth, async (req, res) => {
+    try {
+        const { username } = req.body;
+
+        if (!username || !username.trim()) {
+            return res.status(400).json({ success: false, message: 'Username is required' });
+        }
+
+        const newUsername = username.trim();
+
+        if (newUsername.length < 3 || newUsername.length > 30) {
+            return res.status(400).json({ success: false, message: 'Username must be 3-30 characters' });
+        }
+
+        if (!/^[a-zA-Z0-9_\- ]+$/.test(newUsername)) {
+            return res.status(400).json({ success: false, message: 'Username can only contain letters, numbers, spaces, hyphens and underscores' });
+        }
+
+        // Check if username is already taken by someone else
+        const existing = await query(
+            'SELECT id FROM users WHERE username = ? AND id != ?',
+            [newUsername, req.session.userId]
+        );
+
+        if (existing.length > 0) {
+            return res.status(409).json({ success: false, message: 'Username already taken' });
+        }
+
+        // Update username in users table
+        await query('UPDATE users SET username = ? WHERE id = ?', [newUsername, req.session.userId]);
+
+        // Update username in messages table (global chat)
+        await query('UPDATE messages SET username = ? WHERE user_id = ?', [newUsername, req.session.userId]);
+
+        // Update username in private_messages table
+        await query('UPDATE private_messages SET sender_username = ? WHERE sender_id = ?', [newUsername, req.session.userId]);
+
+        // Update session
+        req.session.username = newUsername;
+
+        console.log(`✏️ Username changed for user #${req.session.userId}: ${newUsername}`);
+
+        return res.json({ success: true, message: 'Username updated', username: newUsername });
+    } catch (error) {
+        console.error('Username update error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to update username' });
+    }
+});
+
+/**
  * GET /api/upload/user-avatar/:userId
  * Get avatar URL for a specific user
  */

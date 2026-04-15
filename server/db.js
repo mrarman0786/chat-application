@@ -60,23 +60,49 @@ async function testConnection() {
     if (usingUrl) {
         console.log('   Using MYSQL_URL connection string');
     } else {
-        console.log(`   Host: ${resolvedHost}:${resolvedPort}`);
-        console.log(`   User: ${resolvedUser}`);
-        console.log(`   Database: ${resolvedDb}`);
-    }
-
-    // Retry logic for production (Railway MySQL may take a moment)
-    const maxRetries = process.env.NODE_ENV === 'production' ? 5 : 1;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    let retries = 5;
+    while (retries > 0) {
         try {
+            console.log(`⏳ Attempting database connection (${6 - retries}/5)...`);
             const connection = await pool.getConnection();
+            
             console.log('✅ Database connected successfully!');
+
+            // Initialize database schema automatically to prevent missing columns on prod
+            try {
+                // Ensure users table exists
+                await connection.query(`
+                    CREATE TABLE IF NOT EXISTS users (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        username VARCHAR(50) NOT NULL UNIQUE,
+                        email VARCHAR(100) NOT NULL UNIQUE,
+                        password VARCHAR(255) NOT NULL,
+                        avatar VARCHAR(500) DEFAULT '',
+                        is_online BOOLEAN DEFAULT FALSE,
+                        last_seen TIMESTAMP NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                `);
+
+                // Check and add avatar column if it's missing (e.g. older Railway instances)
+                const [cols] = await connection.query("SHOW COLUMNS FROM users LIKE 'avatar'");
+                if (cols.length === 0) {
+                    await connection.query("ALTER TABLE users ADD COLUMN avatar VARCHAR(500) DEFAULT ''");
+                    console.log('✅ Added missing avatar column to users table');
+                }
+
+            } catch (schemaErr) {
+                console.error('⚠️ Could not verify/update database schema:', schemaErr.message);
+                // Don't crash the server, just log the warning
+            }
+
             connection.release();
             return true;
         } catch (error) {
-            console.error(`❌ Connection attempt ${attempt}/${maxRetries} failed: ${error.message}`);
-            if (attempt < maxRetries) {
-                console.log('   Retrying in 3 seconds...');
+            console.error('❌ Database connection failed:', error.message);
+            retries -= 1;
+            if (retries > 0) {
+                console.log(`⏳ Retrying in 3 seconds...`);
                 await new Promise(r => setTimeout(r, 3000));
             }
         }

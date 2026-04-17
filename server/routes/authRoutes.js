@@ -46,13 +46,51 @@ router.post('/guest', async (req, res) => {
         let userId;
         let user;
 
-        // Create guest user
-        const result = await query(
-            'INSERT INTO users (username, email, password, avatar, public_key) VALUES (?, ?, ?, ?, ?)',
-            [username, `${username}@guest.${Date.now()}`, 'GUEST_NO_PASSWORD', '', publicKey || null]
+        // Check if user already exists
+        const existingUsers = await query(
+            'SELECT id, username, password, avatar FROM users WHERE username = ?',
+            [username]
         );
-        userId = result.insertId;
-        user = { id: userId, username: username, avatar: '' };
+
+        if (existingUsers.length > 0) {
+            const existingUser = existingUsers[0];
+            
+            // If it's a guest account, let them in
+            if (existingUser.password === 'GUEST_NO_PASSWORD') {
+                userId = existingUser.id;
+                user = { id: userId, username: existingUser.username, avatar: existingUser.avatar || '' };
+                
+                // Update public key if provided
+                if (publicKey) {
+                    await query('UPDATE users SET public_key = ? WHERE id = ?', [publicKey, userId]);
+                }
+            } else {
+                // It's a registered user account
+                return res.status(400).json({
+                    success: false,
+                    message: 'Username is taken by a registered user. Please choose another name or login.'
+                });
+            }
+        } else {
+            // Create new guest user
+            try {
+                const result = await query(
+                    'INSERT INTO users (username, email, password, avatar, public_key) VALUES (?, ?, ?, ?, ?)',
+                    [username, `${username}@guest.${Date.now()}`, 'GUEST_NO_PASSWORD', '', publicKey || null]
+                );
+                userId = result.insertId;
+                user = { id: userId, username: username, avatar: '' };
+            } catch (insertErr) {
+                // Race condition handle
+                if (insertErr.code === 'ER_DUP_ENTRY') {
+                    const retry = await query('SELECT id, username, avatar FROM users WHERE username = ?', [username]);
+                    if (retry.length > 0) {
+                        userId = retry[0].id;
+                        user = { id: userId, username: retry[0].username, avatar: retry[0].avatar || '' };
+                    } else throw insertErr;
+                } else throw insertErr;
+            }
+        }
 
         // Create session
         req.session.userId = user.id;

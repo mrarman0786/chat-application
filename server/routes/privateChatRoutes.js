@@ -201,7 +201,7 @@ router.get('/:chatId/messages', isAuthenticated, async (req, res) => {
 
         const messages = await query(
             `SELECT id, chat_id, sender_id, sender_username, message, 
-                    mood, topics, is_anonymous, is_ai, is_seen, timestamp 
+                    mood, topics, is_anonymous, is_ai, is_seen, is_burn, timestamp 
              FROM private_messages 
              WHERE chat_id = ? 
              ORDER BY timestamp ASC 
@@ -209,14 +209,29 @@ router.get('/:chatId/messages', isAuthenticated, async (req, res) => {
             [chatId, limit, offset]
         );
 
+        // Fetch reactions for these messages
+        const messageIds = messages.map(m => m.id);
+        let reactions = [];
+        if (messageIds.length > 0) {
+            reactions = await query(
+                `SELECT message_id, emoji, user_id FROM reactions WHERE message_id IN (${messageIds.map(() => '?').join(',')})`,
+                messageIds
+            );
+        }
+
         // Process messages
-        const processed = messages.map(msg => ({
-            ...msg,
-            topics: msg.topics ? msg.topics.split(',').filter(t => t) : [],
-            isAnonymous: !!msg.is_anonymous,
-            isAI: !!msg.is_ai,
-            isSeen: !!msg.is_seen
-        }));
+        const processed = messages.map(msg => {
+            const msgReactions = reactions.filter(r => r.message_id === msg.id);
+            return {
+                ...msg,
+                topics: msg.topics ? msg.topics.split(',').filter(t => t) : [],
+                isAnonymous: !!msg.is_anonymous,
+                isAI: !!msg.is_ai,
+                isSeen: !!msg.is_seen,
+                isBurn: !!msg.is_burn,
+                reactions: msgReactions.map(r => ({ emoji: r.emoji, userId: r.user_id }))
+            };
+        });
 
         return res.status(200).json({ success: true, messages: processed });
     } catch (error) {

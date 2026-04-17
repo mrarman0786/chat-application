@@ -182,6 +182,31 @@ async function testConnection() {
                 await connection.query("ALTER TABLE chats MODIFY COLUMN chat_type ENUM('private','group','global','room') NOT NULL DEFAULT 'private'");
 
 
+                // Check if is_burn column exists in messages
+                const columnsM = await connection.query("SHOW COLUMNS FROM messages LIKE 'is_burn'");
+                if (columnsM.length === 0) {
+                    await connection.query("ALTER TABLE messages ADD COLUMN is_burn BOOLEAN DEFAULT FALSE");
+                }
+
+                // Check if is_burn column exists in private_messages
+                const columnsPM = await connection.query("SHOW COLUMNS FROM private_messages LIKE 'is_burn'");
+                if (columnsPM.length === 0) {
+                    await connection.query("ALTER TABLE private_messages ADD COLUMN is_burn BOOLEAN DEFAULT FALSE");
+                }
+
+                // Ensure reactions table exists
+                await connection.query(`
+                    CREATE TABLE IF NOT EXISTS reactions (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        message_id INT NOT NULL,
+                        chat_id INT NOT NULL,
+                        user_id INT NOT NULL,
+                        emoji VARCHAR(50) NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY unique_reaction (message_id, user_id, emoji)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                `);
+
             } catch (schemaErr) {
                 console.error('⚠️ Could not verify/update database schema:', schemaErr.message);
                 // Don't crash the server, just log the warning

@@ -109,9 +109,9 @@ function initializeSocket(io, sessionMiddleware) {
                 const safeMood = validMoods.includes(mood) ? mood : 'happy';
 
                 const result = await query(
-                    `INSERT INTO messages (user_id, username, message, mood, topics, is_anonymous) 
-                     VALUES (?, ?, ?, ?, ?, ?)`,
-                    [socket.userId, socket.username, message, safeMood, topics, isAnonymous]
+                    `INSERT INTO messages (user_id, username, message, mood, topics, is_anonymous, is_burn) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    [socket.userId, socket.username, message, safeMood, topics, isAnonymous, data.isBurn || false]
                 );
 
                 // Get reply-to message data if applicable
@@ -174,10 +174,7 @@ function initializeSocket(io, sessionMiddleware) {
                 }
 
                 // Join the socket room
-                
-                // Join the socket room
-        socket.join(`chat_${chatId}`);
-        // No need to join user_ room here, already joined on connection
+                socket.join(`chat_${chatId}`);
                 
                 // Fetch joiner's public key to broadcast
                 const joiner = await query('SELECT id, username, public_key FROM users WHERE id = ?', [socket.userId]);
@@ -236,9 +233,9 @@ function initializeSocket(io, sessionMiddleware) {
 
                 const result = await query(
                     `INSERT INTO private_messages 
-                     (chat_id, sender_id, sender_username, message, mood, topics, is_anonymous, is_ai) 
-                     VALUES (?, ?, ?, ?, ?, ?, ?, FALSE)`,
-                    [chatId, socket.userId, socket.username, message.trim(), safeMood, topicStr, isAnonymous || false]
+                     (chat_id, sender_id, sender_username, message, mood, topics, is_anonymous, is_ai, is_burn) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, FALSE, ?)`,
+                    [chatId, socket.userId, socket.username, message.trim(), safeMood, topicStr, isAnonymous || false, isBurn || false]
                 );
 
                 // Get reply-to message data if applicable
@@ -336,7 +333,15 @@ function initializeSocket(io, sessionMiddleware) {
                 const { messageId, chatId, emoji } = data;
                 if (!messageId || !chatId || !emoji) return;
 
-                // Broadcast reaction to room statelessly
+                // Save to DB
+                try {
+                    await query(
+                        'INSERT INTO reactions (message_id, chat_id, user_id, emoji) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE emoji = ?',
+                        [messageId, chatId, socket.userId, emoji, emoji]
+                    );
+                } catch (dbErr) { console.error('Error saving reaction:', dbErr); }
+
+                // Broadcast reaction to room
                 io.to(`chat_${chatId}`).emit('reaction-added', {
                     messageId,
                     chatId,
@@ -349,6 +354,46 @@ function initializeSocket(io, sessionMiddleware) {
             } catch (error) {
                 console.error('Error adding reaction:', error);
             }
+        });
+
+        // ============================================
+        // ROOM KILL SWITCH
+        // ============================================
+        socket.on('kill-room', async (data) => {
+            const { chatId } = data;
+            if (!chatId) return;
+            try {
+                // Verify participant
+                const participant = await query(
+                    'SELECT id FROM chat_participants WHERE chat_id = ? AND user_id = ?',
+                    [chatId, socket.userId]
+                );
+                if (participant.length > 0) {
+                    // Delete the chat room (cascading will handle everything)
+                    await query('DELETE FROM chats WHERE id = ?', [chatId]);
+                    // Notify everyone in the room
+                    io.to(`chat_${chatId}`).emit('room-killed', { chatId });
+                    console.log(`💀 Room #${chatId} KILLED by ${socket.username}`);
+                }
+            } catch (e) {
+                console.error('Error killing room:', e);
+            }
+        });
+
+        // ============================================
+        // SESSION KEY TUNNELING
+        // ============================================
+        socket.on('share-session-key', (data) => {
+            const { targetUserId, encryptedKey, iv, chatId } = data;
+            // Send directly to the target user's personal room
+            io.to(`user_${targetUserId}`).emit('session-key-shared', {
+                senderId: socket.userId,
+                senderUsername: socket.username,
+                encryptedKey,
+                iv,
+                chatId
+            });
+            console.log(`🔑 Key shared from ${socket.username} to user #${targetUserId}`);
         });
 
         // ============================================
@@ -866,11 +911,6 @@ async function generateAIChatResponse(message, chatId, userId) {
         return handleScienceQuestion(lowerMsg);
     }
 
-    // ---- GEOGRAPHY ----
-    if (/capital of|largest (country|city|ocean|continent)|population|continent|country|ocean|mountain|river|where is/i.test(lowerMsg)) {
-        return handleGeographyQuestion(lowerMsg);
-    }
-
     // ---- HISTORY ----
     if (/history|who (invented|discovered|founded|created)|when (was|did|were)|world war|ancient|century|civilization/i.test(lowerMsg)) {
         return handleHistoryQuestion(lowerMsg);
@@ -1270,29 +1310,6 @@ function handleEntertainment(lowerMsg) {
 }
 
 // ============================================
-// SMART FALLBACK
-// ============================================
-function handleSmartFallback(lowerMsg, originalMsg) {
-    // Try to extract the key topic and give a helpful response
-    const words = lowerMsg.replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 3);
-    const topicWords = words.filter(w => !['what', 'that', 'this', 'with', 'from', 'have', 'been', 'they', 'their', 'about', 'would', 'could', 'should', 'which', 'where', 'when', 'there', 'these', 'those', 'some', 'were', 'will', 'your', 'just', 'like', 'know', 'think'].includes(w));
-    const topic = topicWords.slice(0, 3).join(' ');
-
-    if (topic) {
-        return {
-            text: `💬 **About "${originalMsg}":**\n\nThat's an interesting topic! Here's how I can help:\n\n🔍 **Ask me specific questions** like:\n• "What is ${topic}?"\n• "How does ${topic} work?"\n• "Tell me about ${topic}"\n\n📚 **For detailed info**, try checking:\n• Google or Wikipedia for comprehensive articles\n• YouTube for video explanations\n• Reddit communities for discussions\n\n💡 **I'm best at:** Math, coding help, study tips, summaries, jokes, motivation, science facts, and general knowledge!\n\nFeel free to ask anything else! 🤖`,
-            type: 'info'
-        };
-    }
-
-    return {
-        text: `🤖 **I'm here to help!** Ask me about:\n\n💻 **Coding** — JavaScript, Python, React, Node.js, SQL\n🧮 **Math** — /math 15*3+7\n📊 **Summarize** — /summarize\n📝 **Notes** — /notes [your text]\n🎓 **Study tips** — How to study effectively\n🔬 **Science** — Physics, Chemistry, Biology, Space\n🌍 **Geography** — Capitals, countries, oceans\n📜 **History** — Inventions, events\n😂 **Fun** — Jokes, fun facts, stories\n💪 **Motivation** — Inspirational quotes\n❓ **General knowledge** — Ask anything!\n\nJust type your question naturally! 💬`,
-        type: 'help'
-    };
-}
-
-
-// ============================================
 // GLOBAL CHAT SUMMARY ENGINE
 // ============================================
 function generateSummary(messages) {
@@ -1325,54 +1342,6 @@ function generateSummary(messages) {
         if (s.text.split(/\s+/).length > 5) score += 2;
         if (s.text.split(/\s+/).length > 10) score += 3;
         return { ...s, score };
-    
-        // ============================================
-        // ROOM KILL SWITCH
-        // ============================================
-        socket.on('kill-room', async (data) => {
-            const { chatId } = data;
-            if (!chatId) return;
-            try {
-                // Verify participant
-                const participant = await query(
-                    'SELECT id FROM chat_participants WHERE chat_id = ? AND user_id = ?',
-                    [chatId, socket.userId]
-                );
-                if (participant.length > 0) {
-                    // Delete the chat room (cascading will handle everything)
-                    await query('DELETE FROM chats WHERE id = ?', [chatId]);
-                    // Notify everyone in the room
-                    io.to(`chat_${chatId}`).emit('room-killed', { chatId });
-                }
-            } catch (e) {
-                console.error('Error killing room:', e);
-            }
-        });
-
-        // ============================================
-        // MESSAGE REACTIONS
-        // ============================================
-        socket.on('add-reaction', async (data) => {
-            const { messageId, chatId, emoji } = data;
-            if (!messageId || !chatId || !emoji) return;
-            // For now, we'll just broadcast the reaction to the room
-            // In a full app, we'd store this in a 'reactions' table.
-            io.to(`chat_${chatId}`).emit('reaction-added', { messageId, emoji, userId: socket.userId });
-        });
-
-    
-        // --- Session Key Tunneling ---
-        socket.on('share-session-key', (data) => {
-            const { targetUserId, encryptedKey, iv, chatId } = data;
-            // Send directly to the target user
-            io.to(`user_${targetUserId}`).emit('session-key-shared', {
-                senderId: socket.userId,
-                encryptedKey,
-                iv,
-                chatId
-            });
-        });
-
     });
 
     const keyPoints = scored.sort((a, b) => b.score - a.score).slice(0, 8).map(s => s.text);

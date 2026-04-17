@@ -44,7 +44,7 @@ router.get('/messages', isAuthenticated, async (req, res) => {
         // ============================================
         // FETCH MESSAGES FROM DATABASE
         // ============================================
-        let sql = `SELECT id, user_id, username, message, mood, topics, is_anonymous, timestamp 
+        let sql = `SELECT id, user_id, username, message, mood, topics, is_anonymous, is_burn, timestamp 
                     FROM messages`;
         let params = [];
 
@@ -59,13 +59,28 @@ router.get('/messages', isAuthenticated, async (req, res) => {
 
         const messages = await query(sql, params);
 
+        // Fetch reactions for these messages
+        const messageIds = messages.map(m => m.id);
+        let reactions = [];
+        if (messageIds.length > 0) {
+            reactions = await query(
+                `SELECT message_id, emoji, user_id FROM reactions WHERE message_id IN (${messageIds.map(() => '?').join(',')})`,
+                messageIds
+            );
+        }
+
         // Process messages — hide anonymous usernames
-        const processedMessages = messages.map(msg => ({
-            ...msg,
-            username: msg.is_anonymous ? 'Anonymous User' : msg.username,
-            topics: msg.topics ? msg.topics.split(',').filter(t => t) : [],
-            isAnonymous: msg.is_anonymous ? true : false
-        }));
+        const processedMessages = messages.map(msg => {
+            const msgReactions = reactions.filter(r => r.message_id === msg.id);
+            return {
+                ...msg,
+                username: msg.is_anonymous ? 'Anonymous User' : msg.username,
+                topics: msg.topics ? msg.topics.split(',').filter(t => t) : [],
+                isAnonymous: !!msg.is_anonymous,
+                isBurn: !!msg.is_burn,
+                reactions: msgReactions.map(r => ({ emoji: r.emoji, userId: r.user_id }))
+            };
+        });
 
         console.log(`📨 Fetched ${messages.length} messages for user: ${req.session.username}`);
 

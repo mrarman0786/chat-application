@@ -3581,25 +3581,28 @@ input:checked+.toggle-slider::before {
 .message {
     display: flex;
     margin-bottom: 12px;
-    width: 100%;
+    max-width: 85%;
+    width: fit-content;
+    gap: 8px;
+    transition: all 0.3s ease;
 }
 
 .message.sent {
-    justify-content: flex-end;
+    align-self: flex-end;
+    flex-direction: row-reverse;
 }
 
 .message.received {
-    justify-content: flex-start;
+    align-self: flex-start;
 }
 
 .message-content {
-    max-width: 75%;
     padding: 10px 14px;
     border-radius: var(--radius-md);
     position: relative;
     word-wrap: break-word;
     box-shadow: var(--shadow-sm);
-    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
 }
 
 .message.sent .message-content {
@@ -3643,30 +3646,32 @@ html[data-theme="cyberpunk"] .message.sent .message-content {
     background: #ff003c;
     color: #fff;
     border: 1px solid #00f0ff;
-    box-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
+    box-shadow: 0 0 15px rgba(255, 0, 60, 0.4);
 }
 html[data-theme="cyberpunk"] .message.received .message-content {
-    background: rgba(20,20,30,0.8);
+    background: rgba(20,20,30,0.9);
     color: #fff;
     border: 1px solid #ff003c;
 }
 
 html[data-theme="hacker"] .message.sent .message-content {
-    background: #003300;
+    background: #002200;
     color: #0f0;
     border: 1px solid #0f0;
 }
 html[data-theme="hacker"] .message.received .message-content {
     background: #000;
     color: #0c0;
-    border: 1px solid #005500;
+    border: 1px solid #004400;
 }
 
 html[data-theme="ocean"] .message.sent .message-content {
-    background: #006994;
+    background: #0077be;
     color: #fff;
 }
 html[data-theme="ocean"] .message.received .message-content {
-    background: rgba(0,105,148,0.1);
-    border: 1px solid #006994;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid #0077be;
+    backdrop-filter: blur(15px);
 }
+

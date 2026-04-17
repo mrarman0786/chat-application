@@ -343,7 +343,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function appendMessage(id, senderName, text, isMe, timestamp, isBurn) {
         const div = document.createElement('div');
-        div.className = `message ${isMe ? 'sent' : 'received'}`;
+        div.className = `message ${isMe ? 'sent own' : 'received other'}`;
         div.id = 'msg-' + id;
         
         const timeStr = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });

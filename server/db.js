@@ -91,21 +91,15 @@ async function testConnection() {
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
                 `);
 
-                // Check and add public_key column if it's missing
-                const [pkCols] = await connection.query("SHOW COLUMNS FROM users LIKE 'public_key'");
-                if (pkCols.length === 0) {
-                    await connection.query("ALTER TABLE users ADD COLUMN public_key TEXT");
-                    console.log('✅ Added missing public_key column to users table');
-                }
+                // Migrations for users table
+                const [userCols] = await connection.query("SHOW COLUMNS FROM users");
+                const colNames = userCols.map(c => c.Field);
+                if (!colNames.includes('public_key')) await connection.query("ALTER TABLE users ADD COLUMN public_key TEXT");
+                if (!colNames.includes('avatar')) await connection.query("ALTER TABLE users ADD COLUMN avatar VARCHAR(500) DEFAULT ''");
+                if (!colNames.includes('is_online')) await connection.query("ALTER TABLE users ADD COLUMN is_online BOOLEAN DEFAULT FALSE");
+                if (!colNames.includes('last_seen')) await connection.query("ALTER TABLE users ADD COLUMN last_seen TIMESTAMP NULL");
 
-                // Check and add avatar column if it's missing (e.g. older Railway instances)
-                const [cols] = await connection.query("SHOW COLUMNS FROM users LIKE 'avatar'");
-                if (cols.length === 0) {
-                    await connection.query("ALTER TABLE users ADD COLUMN avatar VARCHAR(500) DEFAULT ''");
-                    console.log('✅ Added missing avatar column to users table');
-                }
-
-                // Ensure chats table exists (for room_code migration)
+                // Ensure chats table exists
                 await connection.query(`
                     CREATE TABLE IF NOT EXISTS chats (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -116,14 +110,77 @@ async function testConnection() {
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
                 `);
 
-                // Check and add room_code column to chats
-                const [rcCols] = await connection.query("SHOW COLUMNS FROM chats LIKE 'room_code'");
-                if (rcCols.length === 0) {
-                    await connection.query("ALTER TABLE chats ADD COLUMN room_code VARCHAR(8) UNIQUE NULL");
-                    // Also modify chat_type enum to include 'room'
-                    await connection.query("ALTER TABLE chats MODIFY COLUMN chat_type ENUM('private','group','global','room') NOT NULL DEFAULT 'private'");
-                    console.log('✅ Added missing room_code column and updated chat_type enum in chats table');
+                // Ensure chat_participants table exists
+                await connection.query(`
+                    CREATE TABLE IF NOT EXISTS chat_participants (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        chat_id INT NOT NULL,
+                        user_id INT NOT NULL,
+                        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                        UNIQUE KEY unique_participant (chat_id, user_id)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                `);
+
+                // Ensure private_messages table exists
+                await connection.query(`
+                    CREATE TABLE IF NOT EXISTS private_messages (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        chat_id INT NOT NULL,
+                        sender_id INT NULL,
+                        sender_username VARCHAR(50) NOT NULL,
+                        message TEXT NOT NULL,
+                        mood ENUM('happy','sad','angry','calm','excited') DEFAULT 'happy',
+                        topics VARCHAR(500) DEFAULT '',
+                        is_anonymous BOOLEAN DEFAULT FALSE,
+                        is_ai BOOLEAN DEFAULT FALSE,
+                        is_seen BOOLEAN DEFAULT FALSE,
+                        is_burn BOOLEAN DEFAULT FALSE,
+                        message_type ENUM('text','image','video','file') DEFAULT 'text',
+                        file_url VARCHAR(500) DEFAULT NULL,
+                        file_name VARCHAR(255) DEFAULT NULL,
+                        file_size INT DEFAULT NULL,
+                        reply_to_id INT DEFAULT NULL,
+                        forwarded_from VARCHAR(100) DEFAULT NULL,
+                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+                        FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE SET NULL,
+                        FOREIGN KEY (reply_to_id) REFERENCES private_messages(id) ON DELETE SET NULL
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                `);
+
+                // Ensure global messages table exists
+                await connection.query(`
+                    CREATE TABLE IF NOT EXISTS messages (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        user_id INT NOT NULL,
+                        username VARCHAR(50) NOT NULL,
+                        message TEXT NOT NULL,
+                        mood ENUM('happy','sad','angry','calm','excited') DEFAULT 'happy',
+                        topics VARCHAR(500) DEFAULT '',
+                        is_anonymous BOOLEAN DEFAULT FALSE,
+                        message_type ENUM('text','image','video','file') DEFAULT 'text',
+                        file_url VARCHAR(500) DEFAULT NULL,
+                        file_name VARCHAR(255) DEFAULT NULL,
+                        file_size INT DEFAULT NULL,
+                        reply_to_id INT DEFAULT NULL,
+                        forwarded_from VARCHAR(100) DEFAULT NULL,
+                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                        FOREIGN KEY (reply_to_id) REFERENCES messages(id) ON DELETE SET NULL
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                `);
+
+                // Check and add is_burn column to private_messages if it's missing
+                const [pmCols] = await connection.query("SHOW COLUMNS FROM private_messages LIKE 'is_burn'");
+                if (pmCols.length === 0) {
+                    await connection.query("ALTER TABLE private_messages ADD COLUMN is_burn BOOLEAN DEFAULT FALSE");
                 }
+
+                // Check and update chat_type enum in chats
+                await connection.query("ALTER TABLE chats MODIFY COLUMN chat_type ENUM('private','group','global','room') NOT NULL DEFAULT 'private'");
+
 
             } catch (schemaErr) {
                 console.error('⚠️ Could not verify/update database schema:', schemaErr.message);

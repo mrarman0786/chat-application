@@ -34,6 +34,7 @@ const { initializeSocket } = require('./socket');
 const authRoutes = require('./routes/authRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const privateChatRoutes = require('./routes/privateChatRoutes');
+const roomRoutes = require('./routes/roomRoutes');
 const aiRoutes = require('./routes/aiRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 
@@ -100,6 +101,9 @@ app.use('/api/chat', chatRoutes);
 
 // Mount private chat routes
 app.use('/api/chats', privateChatRoutes);
+
+// Mount room routes
+app.use('/api/rooms', roomRoutes);
 
 // Mount AI chatbot routes
 app.use('/api/ai', aiRoutes);
@@ -178,6 +182,36 @@ async function startServer() {
                 console.error('⚠️  Database connection failed on startup.');
                 console.error('   The app is running but chat will not work.');
                 console.error('   Check your environment variables for database credentials.');
+            } else {
+                // ============================================
+                // 24-HOUR AUTO-DELETE JOB
+                // ============================================
+                console.log('🧹 Initializing 24-hour message cleanup job...');
+                
+                const cleanup = async () => {
+                    try {
+                        const { query } = require('./db');
+                        console.log('🧹 Running message cleanup...');
+                        
+                        // Delete global messages older than 24h
+                        const res1 = await query('DELETE FROM messages WHERE timestamp < NOW() - INTERVAL 1 DAY');
+                        // Delete private messages older than 24h
+                        const res2 = await query('DELETE FROM private_messages WHERE timestamp < NOW() - INTERVAL 1 DAY');
+                        // Delete old rooms
+                        const res3 = await query("DELETE FROM chats WHERE chat_type = 'group' AND created_at < NOW() - INTERVAL 1 DAY");
+                        // Delete old users (for true anonymity)
+                        const res4 = await query('DELETE FROM users WHERE created_at < NOW() - INTERVAL 1 DAY AND id != 1'); // Keep admin
+                        
+                        console.log(`✅ Cleanup complete. Deleted ${res1.affectedRows || 0} global, ${res2.affectedRows || 0} private messages, ${res3.affectedRows || 0} rooms, ${res4.affectedRows || 0} old users.`);
+                    } catch (err) {
+                        console.error('❌ Cleanup job failed:', err);
+                    }
+                };
+
+                // Run every hour
+                setInterval(cleanup, 60 * 60 * 1000);
+                // Also run once on startup after 30s
+                setTimeout(cleanup, 30000);
             }
         });
     });

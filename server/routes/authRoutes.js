@@ -19,92 +19,59 @@ const { query } = require('../db');
 const { hashPassword, comparePassword } = require('../auth');
 
 /**
- * POST /api/auth/register
- * Register a new user
+ * POST /api/auth/guest
+ * Enter as a guest user (no password required)
  * 
- * Request body: { username, email, password }
- * Response: { success, message }
+ * Request body: { username }
+ * Response: { success, message, user }
  */
-router.post('/register', async (req, res) => {
+router.post('/guest', async (req, res) => {
     try {
-        const { username, email, password } = req.body;
+        const { username, publicKey } = req.body;
 
-        // ============================================
-        // INPUT VALIDATION
-        // ============================================
-        if (!username || !email || !password) {
+        if (!username) {
             return res.status(400).json({
                 success: false,
-                message: 'All fields are required (username, email, password)'
+                message: 'Username is required'
             });
         }
 
-        // Validate username length
-        if (username.length < 3 || username.length > 50) {
+        if (username.length < 3 || username.length > 20) {
             return res.status(400).json({
                 success: false,
-                message: 'Username must be between 3 and 50 characters'
+                message: 'Username must be between 3 and 20 characters'
             });
         }
 
-        // Validate email format
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Please enter a valid email address'
-            });
-        }
+        let userId;
+        let user;
 
-        // Validate password length
-        if (password.length < 6) {
-            return res.status(400).json({
-                success: false,
-                message: 'Password must be at least 6 characters'
-            });
-        }
-
-        // ============================================
-        // CHECK FOR EXISTING USER
-        // ============================================
-        // Using prepared statements to prevent SQL injection
-        const existingUsers = await query(
-            'SELECT id FROM users WHERE username = ? OR email = ?',
-            [username, email]
-        );
-
-        if (existingUsers.length > 0) {
-            return res.status(409).json({
-                success: false,
-                message: 'Username or email already exists'
-            });
-        }
-
-        // ============================================
-        // CREATE NEW USER
-        // ============================================
-        // Hash the password before storing
-        const hashedPassword = await hashPassword(password);
-
-        // Insert new user into database
+        // Create guest user
         const result = await query(
-            'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
-            [username, email, hashedPassword]
+            'INSERT INTO users (username, email, password, avatar, public_key) VALUES (?, ?, ?, ?, ?)',
+            [username, `${username}@guest.${Date.now()}`, 'GUEST_NO_PASSWORD', '', publicKey || null]
         );
+        userId = result.insertId;
+        user = { id: userId, username: username, avatar: '' };
 
-        console.log(`✅ New user registered: ${username} (ID: ${result.insertId})`);
+        // Create session
+        req.session.userId = user.id;
+        req.session.username = user.username;
+        req.session.isGuest = true;
 
-        // Return success response
+        console.log(`✅ Guest joined: ${user.username} (ID: ${user.id})`);
+
         return res.status(201).json({
             success: true,
-            message: 'Registration successful! Please log in.'
+            message: 'Guest login successful!',
+            user
         });
 
     } catch (error) {
-        console.error('Registration error:', error);
+        console.error('Guest login error:', error);
         return res.status(500).json({
             success: false,
-            message: 'Server error during registration. Please try again.'
+            message: 'Server error during guest login'
         });
     }
 });

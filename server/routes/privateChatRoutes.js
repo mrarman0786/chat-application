@@ -26,7 +26,7 @@ const { isAuthenticated } = require('../auth');
 router.get('/users', isAuthenticated, async (req, res) => {
     try {
         const users = await query(
-            `SELECT id, username, is_online, last_seen 
+            `SELECT id, username, is_online, last_seen, public_key 
              FROM users WHERE id != ? ORDER BY is_online DESC, username ASC`,
             [req.session.userId]
         );
@@ -113,7 +113,7 @@ router.get('/my-chats', isAuthenticated, async (req, res) => {
         const chats = await query(
             `SELECT c.id as chatId, c.chat_type, c.created_at,
                     u.id as otherUserId, u.username as otherUsername, 
-                    u.is_online as otherOnline, u.last_seen as otherLastSeen,
+                    u.is_online as otherOnline, u.last_seen as otherLastSeen, u.public_key as otherPublicKey,
                     (SELECT COUNT(*) FROM private_messages pm 
                      WHERE pm.chat_id = c.id AND pm.is_seen = FALSE AND pm.sender_id != ?) as unreadCount
              FROM chats c
@@ -243,6 +243,44 @@ router.post('/:chatId/seen', isAuthenticated, async (req, res) => {
     } catch (error) {
         console.error('Error marking as seen:', error);
         return res.status(500).json({ success: false, message: 'Error updating seen status' });
+    }
+});
+
+/**
+ * DELETE /api/chats/messages/:id
+ * Delete a private message (own messages only, or admin can delete any)
+ */
+router.delete('/messages/:id', isAuthenticated, async (req, res) => {
+    try {
+        const messageId = parseInt(req.params.id);
+        if (!messageId) return res.status(400).json({ success: false, message: 'Message ID required' });
+
+        // Get the message and verify user is participant
+        const messages = await query(
+            `SELECT pm.id, pm.sender_id, pm.chat_id FROM private_messages pm
+             INNER JOIN chat_participants cp ON pm.chat_id = cp.chat_id AND cp.user_id = ?
+             WHERE pm.id = ?`,
+            [req.session.userId, messageId]
+        );
+
+        if (messages.length === 0) return res.status(404).json({ success: false, message: 'Message not found or not authorized' });
+
+        const msg = messages[0];
+
+        // Check admin
+        const adminCheck = await query('SELECT MIN(id) as adminId FROM users');
+        const isAdmin = adminCheck[0].adminId === req.session.userId;
+
+        if (msg.sender_id !== req.session.userId && !isAdmin) {
+            return res.status(403).json({ success: false, message: 'Not authorized to delete this message' });
+        }
+
+        await query('DELETE FROM private_messages WHERE id = ?', [messageId]);
+        console.log(`🗑️ Private message #${messageId} deleted by ${req.session.username}`);
+        return res.status(200).json({ success: true, messageId, chatId: msg.chat_id });
+    } catch (error) {
+        console.error('Error deleting private message:', error);
+        return res.status(500).json({ success: false, message: 'Error deleting message' });
     }
 });
 

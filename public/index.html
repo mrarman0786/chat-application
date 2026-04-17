@@ -3,151 +3,101 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Real-Time Chat Application - Login and Register">
+    <meta name="description" content="Tic Talk - Real-Time Chat Application - Login and Register">
     
-    <title>ChatApp - Login</title>
+    <title>Tic Talk - Login</title>
     
     <!-- Stylesheet -->
     <link rel="stylesheet" href="css/style.css">
     
-    <!-- Google Fonts -->
+    <!-- Google Fonts & FontAwesome -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script>
+        // Prevent FOUC
+        document.documentElement.setAttribute('data-theme', 'light');
+    </script>
 </head>
 <body class="auth-page">
     <!-- 
     ============================================
-    AUTHENTICATION PAGE
-    ============================================
-    Contains Login and Register forms with toggle
-    
-    VIVA EXPLANATION:
-    - Single page with two forms
-    - JavaScript toggles between forms
-    - Form validation before submission
-    - Fetch API for AJAX requests
+    AUTHENTICATION PAGE (Split Layout)
     ============================================
     -->
-    
-    <div class="auth-container">
-        <!-- Logo and Title -->
-        <div class="auth-header">
-            <div class="logo">
-                <span class="logo-icon">💬</span>
-                <h1>ChatApp</h1>
+
+    <div class="auth-split-layout">
+        <!-- Left Hero Side -->
+        <div class="auth-hero">
+            <div class="hero-content">
+                <div class="hero-logo">
+                    <span class="logo-icon"><i class="fa-regular fa-comments"></i></span>
+                    <h1>Tic Talk</h1>
+                </div>
+                <h2>Anonymous. Secure. Instant.</h2>
+                <p>Tic Talk — The ultimate anonymous messaging platform. No accounts, no footprints, total privacy with end-to-end encryption.</p>
             </div>
-            <p class="tagline">Real-time messaging made simple</p>
+            
+            <!-- Animation Background -->
+            <div class="bg-animation">
+                <div class="bubble"></div>
+                <div class="bubble"></div>
+                <div class="bubble"></div>
+                <div class="bubble"></div>
+                <div class="bubble"></div>
+            </div>
         </div>
-        
-        <!-- Form Tabs -->
-        <div class="auth-tabs">
-            <button class="tab-btn active" data-tab="login">Login</button>
-            <button class="tab-btn" data-tab="register">Register</button>
+
+        <!-- Right Form Side -->
+        <div class="auth-panel">
+            <div class="auth-container">
+                <div class="auth-header-text">
+                    <h3>Enter the Chat</h3>
+                    <p>Choose a temporary identity to start chatting anonymously.</p>
+                </div>
+                
+                <!-- Error/Success Message Display -->
+                <div id="message-container" class="message-container hidden">
+                    <p id="message-text"></p>
+                </div>
+                
+                <!-- Guest Mode Form -->
+                <form id="guest-form" class="auth-form active">
+                    <div class="form-group">
+                        <div class="input-wrapper">
+                            <i class="fa-regular fa-user input-icon"></i>
+                            <input 
+                                type="text" 
+                                id="guest-username" 
+                                name="username" 
+                                placeholder="Choose a username"
+                                autocomplete="off"
+                                minlength="3"
+                                maxlength="20"
+                                required
+                            >
+                        </div>
+                        <span class="input-hint">3-20 characters. This is your temporary name.</span>
+                    </div>
+                    
+                    <button type="submit" class="submit-btn" id="guest-btn">
+                        <span class="btn-text">Start Chatting</span>
+                        <span class="btn-loader hidden"></span>
+                    </button>
+                </form>
+                
+                <!-- Footer -->
+                <div class="auth-footer">
+                    <p><i class="fa-solid fa-shield-halved"></i> End-to-End Encrypted</p>
+                    <p><i class="fa-solid fa-clock-rotate-left"></i> History deleted every 24h</p>
+                </div>
+            </div>
         </div>
-        
-        <!-- Error/Success Message Display -->
-        <div id="message-container" class="message-container hidden">
-            <p id="message-text"></p>
-        </div>
-        
-        <!-- Login Form -->
-        <form id="login-form" class="auth-form active">
-            <div class="form-group">
-                <label for="login-username">Username or Email</label>
-                <input 
-                    type="text" 
-                    id="login-username" 
-                    name="username" 
-                    placeholder="Enter your username or email"
-                    autocomplete="username"
-                    required
-                >
-            </div>
-            
-            <div class="form-group">
-                <label for="login-password">Password</label>
-                <input 
-                    type="password" 
-                    id="login-password" 
-                    name="password" 
-                    placeholder="Enter your password"
-                    autocomplete="current-password"
-                    required
-                >
-            </div>
-            
-            <button type="submit" class="submit-btn" id="login-btn">
-                <span class="btn-text">Login</span>
-                <span class="btn-loader hidden"></span>
-            </button>
-        </form>
-        
-        <!-- Register Form -->
-        <form id="register-form" class="auth-form">
-            <div class="form-group">
-                <label for="register-username">Username</label>
-                <input 
-                    type="text" 
-                    id="register-username" 
-                    name="username" 
-                    placeholder="Choose a username"
-                    autocomplete="username"
-                    minlength="3"
-                    maxlength="50"
-                    required
-                >
-                <span class="input-hint">3-50 characters</span>
-            </div>
-            
-            <div class="form-group">
-                <label for="register-email">Email</label>
-                <input 
-                    type="email" 
-                    id="register-email" 
-                    name="email" 
-                    placeholder="Enter your email"
-                    autocomplete="email"
-                    required
-                >
-            </div>
-            
-            <div class="form-group">
-                <label for="register-password">Password</label>
-                <input 
-                    type="password" 
-                    id="register-password" 
-                    name="password" 
-                    placeholder="Create a password"
-                    autocomplete="new-password"
-                    minlength="6"
-                    required
-                >
-                <span class="input-hint">Minimum 6 characters</span>
-            </div>
-            
-            <button type="submit" class="submit-btn" id="register-btn">
-                <span class="btn-text">Create Account</span>
-                <span class="btn-loader hidden"></span>
-            </button>
-        </form>
-        
-        <!-- Footer -->
-        <div class="auth-footer">
-            <p>Secure real-time messaging</p>
-        </div>
-    </div>
-    
-    <!-- Animation Background -->
-    <div class="bg-animation">
-        <div class="bubble"></div>
-        <div class="bubble"></div>
-        <div class="bubble"></div>
-        <div class="bubble"></div>
-        <div class="bubble"></div>
     </div>
     
     <!-- Auth JavaScript -->
+
     <script src="js/auth.js"></script>
 </body>
 </html>

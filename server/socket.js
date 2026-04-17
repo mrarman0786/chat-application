@@ -95,6 +95,8 @@ function initializeSocket(io, sessionMiddleware) {
                 const mood = data.mood || 'happy';
                 const topics = Array.isArray(data.topics) ? data.topics.join(',') : (data.topics || '');
                 const isAnonymous = data.isAnonymous || false;
+                const replyToId = data.replyToId || null;
+                const forwardedFrom = data.forwardedFrom || null;
 
                 if (!message || message.length === 0) {
                     return socket.emit('error', { message: 'Message cannot be empty' });
@@ -112,6 +114,15 @@ function initializeSocket(io, sessionMiddleware) {
                     [socket.userId, socket.username, message, safeMood, topics, isAnonymous]
                 );
 
+                // Get reply-to message data if applicable
+                let replyData = null;
+                if (replyToId) {
+                    const replyMsg = await query('SELECT id, username, message FROM messages WHERE id = ? LIMIT 1', [replyToId]);
+                    if (replyMsg.length > 0) {
+                        replyData = { id: replyMsg[0].id, username: replyMsg[0].username, message: replyMsg[0].message.substring(0, 120) };
+                    }
+                }
+
                 const messageData = {
                     id: result.insertId,
                     user_id: socket.userId,
@@ -120,6 +131,8 @@ function initializeSocket(io, sessionMiddleware) {
                     mood: safeMood,
                     topics: topics ? topics.split(',') : [],
                     isAnonymous: isAnonymous,
+                    replyTo: replyData,
+                    forwardedFrom: forwardedFrom,
                     timestamp: new Date()
                 };
 
@@ -161,7 +174,21 @@ function initializeSocket(io, sessionMiddleware) {
                 }
 
                 // Join the socket room
-                socket.join(`chat_${chatId}`);
+                
+                // Join the socket room
+        socket.join(`chat_${chatId}`);
+        // No need to join user_ room here, already joined on connection
+                
+                // Fetch joiner's public key to broadcast
+                const joiner = await query('SELECT id, username, public_key FROM users WHERE id = ?', [socket.userId]);
+                if (joiner.length > 0) {
+                    socket.to(`chat_${chatId}`).emit('user-joined', {
+                        id: joiner[0].id,
+                        username: joiner[0].username,
+                        public_key: joiner[0].public_key
+                    });
+                }
+
                 console.log(`🔑 ${socket.username} joined private chat #${chatId}`);
 
                 // Mark messages as seen
@@ -184,7 +211,7 @@ function initializeSocket(io, sessionMiddleware) {
         // ============================================
         socket.on('send-private-message', async (data) => {
             try {
-                const { chatId, message, mood, topics, isAnonymous } = data;
+                const { chatId, message, mood, topics, isAnonymous, replyToId, forwardedFrom, isBurn } = data;
 
                 if (!chatId || !message || !message.trim()) {
                     return socket.emit('error', { message: 'Chat ID and message required' });
@@ -214,6 +241,15 @@ function initializeSocket(io, sessionMiddleware) {
                     [chatId, socket.userId, socket.username, message.trim(), safeMood, topicStr, isAnonymous || false]
                 );
 
+                // Get reply-to message data if applicable
+                let replyData = null;
+                if (replyToId) {
+                    const replyMsg = await query('SELECT id, sender_username, message FROM private_messages WHERE id = ? LIMIT 1', [replyToId]);
+                    if (replyMsg.length > 0) {
+                        replyData = { id: replyMsg[0].id, username: replyMsg[0].sender_username, message: replyMsg[0].message.substring(0, 120) };
+                    }
+                }
+
                 const msgData = {
                     id: result.insertId,
                     chat_id: chatId,
@@ -225,6 +261,9 @@ function initializeSocket(io, sessionMiddleware) {
                     isAnonymous: isAnonymous || false,
                     isAI: false,
                     isSeen: false,
+                    isBurn: isBurn || false,
+                    replyTo: replyData,
+                    forwardedFrom: forwardedFrom || null,
                     timestamp: new Date()
                 };
 
@@ -239,7 +278,6 @@ function initializeSocket(io, sessionMiddleware) {
 
                 participants.forEach(p => {
                     if (onlineSockets.has(p.user_id)) {
-                        // Send to all sockets for this user
                         io.to(`user_${p.user_id}`).emit('new-message-notification', {
                             chatId,
                             senderUsername: isAnonymous ? 'Anonymous User' : socket.username,
@@ -253,6 +291,125 @@ function initializeSocket(io, sessionMiddleware) {
             } catch (error) {
                 console.error('Error sending private message:', error);
                 socket.emit('error', { message: 'Failed to send message' });
+            }
+        });
+
+        // ============================================
+        // DELETE MESSAGE (real-time broadcast)
+        // ============================================
+        socket.on('delete-message', async (data) => {
+            try {
+                const { messageId, chatType, chatId } = data;
+                if (!messageId) return;
+
+                if (chatType === 'global') {
+                    const msg = await query('SELECT user_id FROM messages WHERE id = ?', [messageId]);
+                    if (msg.length === 0) return;
+                    const adminCheck = await query('SELECT MIN(id) as adminId FROM users');
+                    const isAdmin = adminCheck[0].adminId === socket.userId;
+                    if (msg[0].user_id !== socket.userId && !isAdmin) return;
+
+                    await query('DELETE FROM messages WHERE id = ?', [messageId]);
+                    io.emit('message-deleted', { messageId, chatType: 'global' });
+                    console.log(`🗑️ Global msg #${messageId} deleted by ${socket.username}`);
+                } else if (chatType === 'private' && chatId) {
+                    const msg = await query('SELECT sender_id FROM private_messages WHERE id = ? AND chat_id = ?', [messageId, chatId]);
+                    if (msg.length === 0) return;
+                    const adminCheck = await query('SELECT MIN(id) as adminId FROM users');
+                    const isAdmin = adminCheck[0].adminId === socket.userId;
+                    if (msg[0].sender_id !== socket.userId && !isAdmin) return;
+
+                    await query('DELETE FROM private_messages WHERE id = ?', [messageId]);
+                    io.to(`chat_${chatId}`).emit('message-deleted', { messageId, chatType: 'private', chatId });
+                    console.log(`🗑️ Private msg #${messageId} deleted by ${socket.username}`);
+                }
+            } catch (error) {
+                console.error('Error deleting message:', error);
+            }
+        });
+
+        // ============================================
+        // ADD REACTION
+        // ============================================
+        socket.on('add-reaction', async (data) => {
+            try {
+                const { messageId, chatId, emoji } = data;
+                if (!messageId || !chatId || !emoji) return;
+
+                // Broadcast reaction to room statelessly
+                io.to(`chat_${chatId}`).emit('reaction-added', {
+                    messageId,
+                    chatId,
+                    emoji,
+                    userId: socket.userId,
+                    username: socket.username
+                });
+                
+                console.log(`👍 Reaction ${emoji} added to msg #${messageId} by ${socket.username}`);
+            } catch (error) {
+                console.error('Error adding reaction:', error);
+            }
+        });
+
+        // ============================================
+        // FORWARD MESSAGE
+        // ============================================
+        socket.on('forward-message', async (data) => {
+            try {
+                const { targetChatId, message, forwardedFrom } = data;
+                if (!targetChatId || !message) return;
+
+                // Verify sender is participant of target chat
+                const participant = await query(
+                    'SELECT id FROM chat_participants WHERE chat_id = ? AND user_id = ?',
+                    [targetChatId, socket.userId]
+                );
+                if (participant.length === 0) return socket.emit('error', { message: 'Not authorized for target chat' });
+
+                const result = await query(
+                    `INSERT INTO private_messages 
+                     (chat_id, sender_id, sender_username, message, mood, is_ai) 
+                     VALUES (?, ?, ?, ?, 'happy', FALSE)`,
+                    [targetChatId, socket.userId, socket.username, message.trim()]
+                );
+
+                const msgData = {
+                    id: result.insertId,
+                    chat_id: targetChatId,
+                    sender_id: socket.userId,
+                    sender_username: socket.username,
+                    message: message.trim(),
+                    mood: 'happy',
+                    topics: [],
+                    isAnonymous: false,
+                    isAI: false,
+                    isSeen: false,
+                    forwardedFrom: forwardedFrom || 'Unknown',
+                    timestamp: new Date()
+                };
+
+                io.to(`chat_${targetChatId}`).emit('receive-private-message', msgData);
+
+                // Notify target user
+                const participants = await query(
+                    'SELECT user_id FROM chat_participants WHERE chat_id = ? AND user_id != ?',
+                    [targetChatId, socket.userId]
+                );
+                participants.forEach(p => {
+                    if (onlineSockets.has(p.user_id)) {
+                        io.to(`user_${p.user_id}`).emit('new-message-notification', {
+                            chatId: targetChatId,
+                            senderUsername: socket.username,
+                            preview: `↪ Forwarded: ${message.trim().substring(0, 40)}`
+                        });
+                    }
+                });
+
+                socket.emit('forward-success', { targetChatId });
+                console.log(`↪ Message forwarded to chat #${targetChatId} by ${socket.username}`);
+            } catch (error) {
+                console.error('Error forwarding message:', error);
+                socket.emit('error', { message: 'Failed to forward message' });
             }
         });
 
@@ -1168,6 +1325,54 @@ function generateSummary(messages) {
         if (s.text.split(/\s+/).length > 5) score += 2;
         if (s.text.split(/\s+/).length > 10) score += 3;
         return { ...s, score };
+    
+        // ============================================
+        // ROOM KILL SWITCH
+        // ============================================
+        socket.on('kill-room', async (data) => {
+            const { chatId } = data;
+            if (!chatId) return;
+            try {
+                // Verify participant
+                const participant = await query(
+                    'SELECT id FROM chat_participants WHERE chat_id = ? AND user_id = ?',
+                    [chatId, socket.userId]
+                );
+                if (participant.length > 0) {
+                    // Delete the chat room (cascading will handle everything)
+                    await query('DELETE FROM chats WHERE id = ?', [chatId]);
+                    // Notify everyone in the room
+                    io.to(`chat_${chatId}`).emit('room-killed', { chatId });
+                }
+            } catch (e) {
+                console.error('Error killing room:', e);
+            }
+        });
+
+        // ============================================
+        // MESSAGE REACTIONS
+        // ============================================
+        socket.on('add-reaction', async (data) => {
+            const { messageId, chatId, emoji } = data;
+            if (!messageId || !chatId || !emoji) return;
+            // For now, we'll just broadcast the reaction to the room
+            // In a full app, we'd store this in a 'reactions' table.
+            io.to(`chat_${chatId}`).emit('reaction-added', { messageId, emoji, userId: socket.userId });
+        });
+
+    
+        // --- Session Key Tunneling ---
+        socket.on('share-session-key', (data) => {
+            const { targetUserId, encryptedKey, iv, chatId } = data;
+            // Send directly to the target user
+            io.to(`user_${targetUserId}`).emit('session-key-shared', {
+                senderId: socket.userId,
+                encryptedKey,
+                iv,
+                chatId
+            });
+        });
+
     });
 
     const keyPoints = scored.sort((a, b) => b.score - a.score).slice(0, 8).map(s => s.text);

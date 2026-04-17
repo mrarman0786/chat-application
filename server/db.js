@@ -60,6 +60,12 @@ async function testConnection() {
     if (usingUrl) {
         console.log('   Using MYSQL_URL connection string');
     } else {
+        console.log(`   Host: ${resolvedHost}`);
+        console.log(`   Port: ${resolvedPort}`);
+        console.log(`   User: ${resolvedUser}`);
+        console.log(`   Database: ${resolvedDb}`);
+    }
+
     let retries = 5;
     while (retries > 0) {
         try {
@@ -78,17 +84,45 @@ async function testConnection() {
                         email VARCHAR(100) NOT NULL UNIQUE,
                         password VARCHAR(255) NOT NULL,
                         avatar VARCHAR(500) DEFAULT '',
+                        public_key TEXT,
                         is_online BOOLEAN DEFAULT FALSE,
                         last_seen TIMESTAMP NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
                 `);
 
+                // Check and add public_key column if it's missing
+                const [pkCols] = await connection.query("SHOW COLUMNS FROM users LIKE 'public_key'");
+                if (pkCols.length === 0) {
+                    await connection.query("ALTER TABLE users ADD COLUMN public_key TEXT");
+                    console.log('✅ Added missing public_key column to users table');
+                }
+
                 // Check and add avatar column if it's missing (e.g. older Railway instances)
                 const [cols] = await connection.query("SHOW COLUMNS FROM users LIKE 'avatar'");
                 if (cols.length === 0) {
                     await connection.query("ALTER TABLE users ADD COLUMN avatar VARCHAR(500) DEFAULT ''");
                     console.log('✅ Added missing avatar column to users table');
+                }
+
+                // Ensure chats table exists (for room_code migration)
+                await connection.query(`
+                    CREATE TABLE IF NOT EXISTS chats (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        chat_type ENUM('private','group','global','room') NOT NULL DEFAULT 'private',
+                        name VARCHAR(100) NULL,
+                        room_code VARCHAR(8) UNIQUE NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+                `);
+
+                // Check and add room_code column to chats
+                const [rcCols] = await connection.query("SHOW COLUMNS FROM chats LIKE 'room_code'");
+                if (rcCols.length === 0) {
+                    await connection.query("ALTER TABLE chats ADD COLUMN room_code VARCHAR(8) UNIQUE NULL");
+                    // Also modify chat_type enum to include 'room'
+                    await connection.query("ALTER TABLE chats MODIFY COLUMN chat_type ENUM('private','group','global','room') NOT NULL DEFAULT 'private'");
+                    console.log('✅ Added missing room_code column and updated chat_type enum in chats table');
                 }
 
             } catch (schemaErr) {

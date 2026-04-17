@@ -1,1062 +1,464 @@
-/**
- * ============================================
- * CHAT.JS — Full Feature Client
- * ============================================
- * 
- * Features:
- * 1. Mood-Based Dynamic UI
- * 2. Topic-Based Chat Filtering
- * 3. AI Chat Summary
- * 4. Secret Identity Mode
- * 5. Private 1-to-1 Chat
- * 6. AI Chatbot (Smart Assistant)
- * 
- * ============================================
- */
+// Initialize Socket.io
+const socket = io();
 
+// Globals
+let currentChatId = null;
+let currentRoomCode = null;
+let currentUser = { id: null, username: '' };
+let isBurnMode = false; // 10s Burn toggle
+
+// --- Reimagined E2EE: Code-Derived AES-GCM ---
+let currentSessionKey = null;
+
+async function deriveKeyFromRoomCode(code) {
+    console.log('Deriving E2EE key from room code...');
+    const encoder = new TextEncoder();
+    const data = encoder.encode(code + "TIC_TALK_SALT_2024");
+    const hash = await window.crypto.subtle.digest('SHA-256', data);
+    
+    currentSessionKey = await window.crypto.subtle.importKey(
+        "raw", hash, "AES-GCM", true, ["encrypt", "decrypt"]
+    );
+    console.log('E2EE Key derived and active.');
+    return currentSessionKey;
+}
+
+async function encryptWithAES(text) {
+    if (!currentSessionKey) return text;
+    try {
+        const iv = window.crypto.getRandomValues(new Uint8Array(12));
+        const encoded = new TextEncoder().encode(text);
+        const ciphertext = await window.crypto.subtle.encrypt(
+            { name: "AES-GCM", iv: iv },
+            currentSessionKey,
+            encoded
+        );
+        return btoa(String.fromCharCode(...iv)) + "." + btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
+    } catch (e) {
+        console.error("Encryption error:", e);
+        return text;
+    }
+}
+
+async function decryptWithAES(combinedBase64) {
+    if (!currentSessionKey || !combinedBase64.includes('.')) return combinedBase64;
+    try {
+        const [ivBase64, cipherBase64] = combinedBase64.split('.');
+        const iv = new Uint8Array(atob(ivBase64).split("").map(c => c.charCodeAt(0)));
+        const cipherBinary = atob(cipherBase64);
+        const cipherBytes = new Uint8Array(cipherBinary.length).map((_, i) => cipherBinary.charCodeAt(i));
+        
+        const decrypted = await window.crypto.subtle.decrypt(
+            { name: "AES-GCM", iv: iv },
+            currentSessionKey,
+            cipherBytes
+        );
+        return new TextDecoder().decode(decrypted);
+    } catch (e) {
+        return combinedBase64;
+    }
+}
+
+// --- App Initialization & UI Setup ---
 document.addEventListener('DOMContentLoaded', () => {
-    checkAuth();
-
-    // ============================================
-    // DOM ELEMENTS
-    // ============================================
-    const sidebar = document.getElementById('sidebar');
-    const chatPanel = document.getElementById('chat-panel');
+    // DOM Elements
+    const lobbyScreen = document.getElementById('lobby-screen');
+    const appContainer = document.getElementById('app-container');
+    const createRoomBtn = document.getElementById('create-room-btn');
+    const roomCodeDisplay = document.getElementById('room-code-display');
+    const generatedRoomCode = document.getElementById('generated-room-code');
+    const copyCodeBtn = document.getElementById('copy-code-btn');
+    const enterCreatedRoomBtn = document.getElementById('enter-created-room-btn');
+    const joinRoomForm = document.getElementById('join-room-form');
+    const joinRoomCodeInput = document.getElementById('join-room-code');
+    const currentUsernameEl = document.getElementById('current-username');
+    const logoutBtn = document.getElementById('logout-btn');
+    
+    // Chat Panel Elements
+    const chatHeaderName = document.getElementById('chat-header-name');
+    const leaveRoomBtn = document.getElementById('leave-room-btn');
+    const killRoomBtn = document.getElementById('kill-room-btn');
     const messagesContainer = document.getElementById('messages-container');
     const messageForm = document.getElementById('message-form');
     const messageInput = document.getElementById('message-input');
-    const logoutBtn = document.getElementById('logout-btn');
-    const currentUsernameEl = document.getElementById('current-username');
-    const typingIndicator = document.getElementById('typing-indicator');
-    const typingText = typingIndicator.querySelector('.typing-text');
-    const welcomeMessage = document.getElementById('welcome-message');
-    const adminBadge = document.getElementById('admin-badge');
+    const dismissBanner = document.getElementById('dismiss-banner');
+    
+    const burnToggleBtn = document.getElementById('burn-toggle-btn');
+    const emojiBtn = document.getElementById('emoji-btn');
+    const emojiPicker = document.getElementById('emoji-picker');
 
-    // Sidebar elements
-    const userSearch = document.getElementById('user-search');
-    const sidebarTabs = document.querySelectorAll('.sidebar-tab');
-    const privateChatList = document.getElementById('private-chat-list');
-    const usersList = document.getElementById('users-list');
-    const noChatsMsg = document.getElementById('no-chats-msg');
-    const noUsersMsg = document.getElementById('no-users-msg');
-    const backBtn = document.getElementById('back-btn');
+    // Auto-rejoin from sessionStorage
+    const savedChatId = sessionStorage.getItem('ticTalkChatId');
+    const savedRoomCode = sessionStorage.getItem('ticTalkRoomCode');
+    if (savedChatId && savedRoomCode) {
+        enterRoom(savedChatId, savedRoomCode);
+    }
 
-    // Chat header
-    const chatHeaderAvatar = document.getElementById('chat-header-avatar');
-    const chatHeaderName = document.getElementById('chat-header-name');
-    const chatHeaderStatus = document.getElementById('chat-header-status');
+    // Load Theme from localStorage
+    const savedTheme = localStorage.getItem('ticTalkTheme');
+    if (savedTheme) {
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    }
 
-    // Feature elements
-    const moodButtons = document.querySelectorAll('.mood-btn');
-    const topicInput = document.getElementById('topic-input');
-    const anonymousToggle = document.getElementById('anonymous-toggle');
-    const featureControls = document.getElementById('feature-controls');
-    const topicFilterBar = document.getElementById('topic-filter-bar');
-    const filterPills = document.getElementById('filter-pills');
-    const summarizeBtn = document.getElementById('summarize-btn');
-    const summaryModal = document.getElementById('summary-modal');
-    const summaryClose = document.getElementById('summary-close');
-    const summaryLoading = document.getElementById('summary-loading');
-    const summaryResults = document.getElementById('summary-results');
-    const revealModal = document.getElementById('reveal-modal');
-    const revealClose = document.getElementById('reveal-close');
-    const revealUsername = document.getElementById('reveal-username');
+    // Banner dismiss
+    if (dismissBanner) {
+        dismissBanner.addEventListener('click', () => {
+            document.getElementById('incognito-banner').style.display = 'none';
+        });
+    }
 
-    // ============================================
-    // STATE
-    // ============================================
-    let socket = null;
-    let currentUser = null;
-    let selectedMood = 'happy';
-    let isAnonymous = false;
-    let typingTimeout = null;
-
-    // Chat state
-    let activeChat = { type: 'global', chatId: null, userId: null, username: null };
-    let aiChatId = null; // Will be created on first AI interaction
-    let onlineUserIds = new Set();
-    let unreadCounts = {}; // chatId -> count
-
-    const moodConfig = {
-        happy: { emoji: '😊', label: 'Happy' },
-        sad: { emoji: '😢', label: 'Sad' },
-        angry: { emoji: '😡', label: 'Angry' },
-        calm: { emoji: '😌', label: 'Calm' },
-        excited: { emoji: '🤩', label: 'Excited' }
-    };
-
-    // ============================================
-    // AUTH CHECK
-    // ============================================
-    async function checkAuth() {
-        try {
-            const response = await fetch('/api/auth/check', { credentials: 'include' });
-            const data = await response.json();
-            if (!data.authenticated) { window.location.href = '/'; return; }
-
-            currentUser = data.user;
-            currentUsernameEl.textContent = currentUser.username;
-
-            // Display avatar
-            const avatarImg = document.getElementById('current-user-avatar');
-            const avatarFallback = document.getElementById('current-user-avatar-fallback');
-            if (currentUser.avatar) {
-                avatarImg.src = currentUser.avatar;
-                avatarImg.style.display = 'inline';
-                avatarFallback.style.display = 'none';
-            } else {
-                avatarImg.style.display = 'none';
-                avatarFallback.style.display = 'inline';
-            }
-
-            const userResp = await fetch('/api/chat/user', { credentials: 'include' });
-            const userData = await userResp.json();
-            if (userData.success && userData.user.isAdmin) {
-                currentUser.isAdmin = true;
-                adminBadge.classList.remove('hidden');
-            }
-
-            initSocket();
-            loadUsers();
-            loadMyChats();
-            switchToGlobalChat();
-        } catch (error) {
-            console.error('Auth error:', error);
-            window.location.href = '/';
+    // Socket Events
+    socket.on('welcome', (data) => {
+        currentUser.id = data.userId;
+        currentUser.username = data.username;
+        if (currentUsernameEl) {
+            currentUsernameEl.textContent = `Logged in as: ${data.username}`;
         }
-    }
-
-    // ============================================
-    // SOCKET INITIALIZATION
-    // ============================================
-    function initSocket() {
-        socket = io({ withCredentials: true });
-
-        socket.on('connect', () => {
-            updateHeaderStatus('Connected', 'connected');
-        });
-
-        socket.on('disconnect', () => {
-            updateHeaderStatus('Disconnected', 'disconnected');
-        });
-
-        socket.on('welcome', (data) => {
-            if (activeChat.type === 'global' && welcomeMessage) {
-                welcomeMessage.innerHTML = `<p>👋 ${data.message}</p>`;
-            }
-        });
-
-        // Global chat messages
-        socket.on('chat message', (data) => {
-            if (activeChat.type === 'global') {
-                addMessage(data);
-            }
-        });
-
-        // Private chat messages
-        socket.on('receive-private-message', (data) => {
-            const receivedChatId = Number(data.chat_id);
-            if (activeChat.type === 'private' && Number(activeChat.chatId) === receivedChatId) {
-                addMessage(data);
-                // Mark as seen
-                socket.emit('message-seen', { chatId: receivedChatId });
-            } else {
-                // Increment unread
-                unreadCounts[receivedChatId] = (unreadCounts[receivedChatId] || 0) + 1;
-                updateChatItemBadge(receivedChatId, unreadCounts[receivedChatId]);
-            }
-        });
-
-        // AI messages
-        socket.on('receive-ai-message', (data) => {
-            if (activeChat.type === 'ai') {
-                addMessage(data);
-            }
-        });
-
-        socket.on('ai-thinking', (data) => {
-            if (activeChat.type === 'ai' && data.isThinking) {
-                showTyping('AI Assistant');
-            } else {
-                hideTyping();
-            }
-        });
-
-        // New message notification (for unread badge)
-        socket.on('new-message-notification', (data) => {
-            const receivedChatId = Number(data.chatId);
-            if (Number(activeChat.chatId) !== receivedChatId) {
-                unreadCounts[receivedChatId] = (unreadCounts[receivedChatId] || 0) + 1;
-                updateChatItemBadge(receivedChatId, unreadCounts[receivedChatId]);
-            }
-        });
-
-        // Messages seen
-        socket.on('messages-seen', (data) => {
-            if (Number(activeChat.chatId) === Number(data.chatId)) {
-                document.querySelectorAll('.message.own .seen-status').forEach(el => {
-                    el.textContent = '✓✓';
-                    el.classList.add('seen');
-                });
-            }
-        });
-
-        // Online users
-        socket.on('online-users', (data) => {
-            onlineUserIds = new Set(data.users.map(u => u.userId));
-            updateOnlineIndicators();
-        });
-
-        // User join/leave
-        socket.on('user joined', (data) => {
-            if (activeChat.type === 'global') addNotification(`${data.username} joined`, 'join');
-        });
-
-        socket.on('user left', (data) => {
-            if (activeChat.type === 'global') addNotification(`${data.username} left`, 'leave');
-        });
-
-        // Typing — global
-        socket.on('user typing', (data) => {
-            if (activeChat.type === 'global') showTyping(data.username);
-        });
-        socket.on('user stop typing', () => {
-            if (activeChat.type === 'global') hideTyping();
-        });
-
-        // Typing — private
-        socket.on('private-typing-status', (data) => {
-            if (activeChat.type === 'private' && Number(activeChat.chatId) === Number(data.chatId)) {
-                if (data.isTyping) showTyping(data.username); else hideTyping();
-            }
-        });
-
-        // Chat summary
-        socket.on('chat-summary-response', (data) => displaySummary(data));
-
-        socket.on('error', (data) => console.error('Socket error:', data));
-    }
-
-    // ============================================
-    // SIDEBAR — TABS
-    // ============================================
-    sidebarTabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            sidebarTabs.forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            document.querySelectorAll('.sidebar-content').forEach(c => c.classList.remove('active'));
-            document.getElementById(`content-${tab.dataset.tab}`).classList.add('active');
-
-            if (tab.dataset.tab === 'global') {
-                switchToGlobalChat();
-            }
-        });
     });
 
-    // ============================================
-    // SIDEBAR — SEARCH
-    // ============================================
-    userSearch.addEventListener('input', () => {
-        const q = userSearch.value.toLowerCase();
-        document.querySelectorAll('.user-item, .chat-item').forEach(item => {
-            const name = item.querySelector('.chat-item-name, .user-item-name');
-            if (name) {
-                item.style.display = name.textContent.toLowerCase().includes(q) ? '' : 'none';
-            }
-        });
+    socket.on('error', (err) => {
+        alert(err.message || 'An error occurred');
     });
 
-    // ============================================
-    // SIDEBAR — BACK BUTTON (mobile)
-    // ============================================
-    backBtn.addEventListener('click', () => {
-        sidebar.classList.add('show');
-        chatPanel.classList.remove('show');
+    socket.on('receive-private-message', async (data) => {
+        if (data.chat_id == currentChatId) { // == allows string/int match
+            const isMe = data.sender_id === currentUser.id;
+            let decryptedText = data.message;
+            if (!data.isAI) {
+                decryptedText = await decryptWithAES(data.message);
+            }
+            appendMessage(data.id, data.sender_username, decryptedText, isMe, data.timestamp, data.isBurn);
+            scrollToBottom();
+            
+            // Mark seen
+            if (!isMe) {
+                socket.emit('message-seen', { chatId: currentChatId });
+            }
+        }
     });
 
-    document.getElementById('toggle-sidebar').addEventListener('click', () => {
-        sidebar.classList.toggle('collapsed');
+    socket.on('room-killed', (data) => {
+        if (data.chatId == currentChatId) {
+            alert('This room has been forcefully deleted (Kill Switch).');
+            leaveRoom(true); // true = don't emit leave, just UI clear
+        }
     });
 
-    // ============================================
-    // LOAD USERS
-    // ============================================
-    async function loadUsers() {
-        try {
-            const resp = await fetch('/api/chats/users', { credentials: 'include' });
-            const data = await resp.json();
-            if (!data.success) return;
-
-            usersList.innerHTML = '';
-            if (data.users.length === 0) {
-                noUsersMsg.style.display = '';
-                return;
-            }
-            noUsersMsg.style.display = 'none';
-
-            data.users.forEach(user => {
-                const el = document.createElement('div');
-                el.className = 'chat-item user-item';
-                el.dataset.userId = user.id;
-                const isOnline = onlineUserIds.has(user.id);
-                el.innerHTML = `
-                    <div class="chat-avatar">👤</div>
-                    <div class="chat-item-info">
-                        <div class="chat-item-name user-item-name">${escapeHtml(user.username)}</div>
-                        <div class="chat-item-preview">${isOnline ? '<span class="online-text">Online</span>' : 'Offline'}</div>
-                    </div>
-                    <div class="chat-item-meta">
-                        <span class="online-dot ${isOnline ? 'online' : ''}"></span>
-                    </div>
-                `;
-                el.addEventListener('click', () => startPrivateChat(user.id, user.username));
-                usersList.appendChild(el);
-            });
-        } catch (e) { console.error('Error loading users:', e); }
-    }
-
-    // ============================================
-    // LOAD MY CHATS
-    // ============================================
-    async function loadMyChats() {
-        try {
-            const resp = await fetch('/api/chats/my-chats', { credentials: 'include' });
-            const data = await resp.json();
-            if (!data.success) return;
-
-            privateChatList.innerHTML = '';
-            if (data.chats.length === 0) {
-                noChatsMsg.style.display = '';
-                return;
-            }
-            noChatsMsg.style.display = 'none';
-
-            data.chats.forEach(chat => {
-                addChatListItem(chat);
-            });
-        } catch (e) { console.error('Error loading chats:', e); }
-    }
-
-    function addChatListItem(chat) {
-        // Check if already exists
-        let existing = privateChatList.querySelector(`[data-chat-id="${chat.chatId}"]`);
-        if (existing) {
-            // Update last message
-            const preview = existing.querySelector('.chat-item-preview');
-            if (preview && chat.lastMessage) {
-                preview.textContent = chat.lastMessage.message.substring(0, 40);
-            }
-            return;
+    socket.on('message-deleted', (data) => {
+        if (data.chatType === 'private' && data.chatId == currentChatId) {
+            document.getElementById('msg-' + data.messageId)?.remove();
         }
+    });
 
-        const el = document.createElement('div');
-        el.className = 'chat-item';
-        el.dataset.chatId = chat.chatId;
-        el.dataset.userId = chat.otherUserId;
-        el.dataset.username = chat.otherUsername;
-        const isOnline = onlineUserIds.has(chat.otherUserId);
-        const preview = chat.lastMessage ? chat.lastMessage.message.substring(0, 40) : 'Start chatting';
-        const unread = chat.unreadCount || 0;
-
-        el.innerHTML = `
-            <div class="chat-avatar">👤<span class="online-dot-small ${isOnline ? 'online' : ''}"></span></div>
-            <div class="chat-item-info">
-                <div class="chat-item-name">${escapeHtml(chat.otherUsername)}</div>
-                <div class="chat-item-preview">${escapeHtml(preview)}</div>
-            </div>
-            <div class="chat-item-meta">
-                ${unread > 0 ? `<span class="unread-badge">${unread}</span>` : ''}
-            </div>
-        `;
-
-        el.addEventListener('click', () => {
-            openPrivateChat(chat.chatId, chat.otherUserId, chat.otherUsername);
-        });
-
-        privateChatList.appendChild(el);
-        noChatsMsg.style.display = 'none';
-    }
-
-    function updateChatItemBadge(chatId, count) {
-        const item = privateChatList.querySelector(`[data-chat-id="${chatId}"]`);
-        if (!item) {
-            loadMyChats(); // Chat not in list yet, reload
-            return;
-        }
-        let badge = item.querySelector('.unread-badge');
-        if (count > 0) {
-            if (!badge) {
-                badge = document.createElement('span');
-                badge.className = 'unread-badge';
-                item.querySelector('.chat-item-meta').appendChild(badge);
+    socket.on('reaction-added', (data) => {
+        if (data.chatId == currentChatId) {
+            const msgEl = document.getElementById('msg-' + data.messageId);
+            if (!msgEl) return;
+            
+            let reactContainer = msgEl.querySelector('.reactions-container');
+            if (!reactContainer) {
+                reactContainer = document.createElement('div');
+                reactContainer.className = 'reactions-container';
+                // append under message-text
+                msgEl.querySelector('.message-content').appendChild(reactContainer);
             }
-            badge.textContent = count;
-        } else if (badge) {
-            badge.remove();
+            
+            const reactEl = document.createElement('span');
+            reactEl.className = 'reaction-badge';
+            reactEl.textContent = data.emoji;
+            reactContainer.appendChild(reactEl);
         }
-    }
+    });
 
-    // ============================================
-    // START PRIVATE CHAT
-    // ============================================
-    async function startPrivateChat(userId, username) {
+    // Create Room Flow
+    createRoomBtn.addEventListener('click', async () => {
         try {
-            const resp = await fetch('/api/chats/create-private', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ targetUserId: userId })
-            });
-            const data = await resp.json();
+            const res = await fetch('/api/rooms/create', { method: 'POST' });
+            const data = await res.json();
             if (data.success) {
-                openPrivateChat(data.chatId, userId, username);
-                loadMyChats();
+                createRoomBtn.style.display = 'none';
+                roomCodeDisplay.classList.remove('hidden');
+                generatedRoomCode.textContent = data.roomCode;
+                currentChatId = data.chatId;
+                currentRoomCode = data.roomCode;
+            } else {
+                alert(data.message || 'Failed to create room');
             }
-        } catch (e) { console.error('Error creating chat:', e); }
-    }
-
-    // ============================================
-    // OPEN PRIVATE CHAT
-    // ============================================
-    function openPrivateChat(chatId, userId, username) {
-        const numericChatId = Number(chatId);
-        // Leave previous private chat room
-        if (activeChat.type === 'private' && activeChat.chatId) {
-            socket.emit('leave-private-chat', { chatId: activeChat.chatId });
+        } catch (e) {
+            console.error('Create room error:', e);
+            alert('Failed to connect to server');
         }
-
-        activeChat = { type: 'private', chatId: numericChatId, userId, username };
-        clearMessages();
-        hideTyping();
-
-        // Update header
-        chatHeaderAvatar.textContent = '👤';
-        chatHeaderAvatar.className = 'chat-header-avatar';
-        chatHeaderName.textContent = username;
-        const isOnline = onlineUserIds.has(userId);
-        chatHeaderStatus.innerHTML = `<span class="online-dot ${isOnline ? 'online' : ''}"></span> ${isOnline ? 'Online' : 'Offline'}`;
-
-        // Show features, hide topic filter for private
-        featureControls.style.display = '';
-        topicFilterBar.style.display = 'none';
-        summarizeBtn.style.display = 'none';
-
-        // Highlight active chat in sidebar
-        highlightActiveChat(chatId);
-
-        // Join socket room
-        socket.emit('join-private-chat', { chatId });
-
-        // Clear unread
-        unreadCounts[chatId] = 0;
-        updateChatItemBadge(chatId, 0);
-
-        // Load messages
-        loadPrivateMessages(chatId);
-
-        // Mobile: show chat panel
-        sidebar.classList.remove('show');
-        chatPanel.classList.add('show');
-
-        messageInput.focus();
-    }
-
-    // ============================================
-    // SWITCH TO GLOBAL CHAT
-    // ============================================
-    function switchToGlobalChat() {
-        if (activeChat.type === 'private' && activeChat.chatId) {
-            socket.emit('leave-private-chat', { chatId: activeChat.chatId });
-        }
-
-        activeChat = { type: 'global', chatId: null, userId: null, username: null };
-        clearMessages();
-        hideTyping();
-
-        chatHeaderAvatar.textContent = '🌐';
-        chatHeaderAvatar.className = 'chat-header-avatar global-avatar';
-        chatHeaderName.textContent = 'Global Chat';
-        chatHeaderStatus.innerHTML = `<span class="status-dot connected"></span> Connected`;
-
-        featureControls.style.display = '';
-        topicFilterBar.style.display = '';
-        summarizeBtn.style.display = '';
-
-        highlightActiveChat('global');
-        loadGlobalMessages();
-
-        sidebar.classList.remove('show');
-        chatPanel.classList.add('show');
-
-        messageInput.focus();
-    }
-
-    // ============================================
-    // OPEN AI CHAT
-    // ============================================
-    document.getElementById('ai-chat-item').addEventListener('click', () => {
-        openAIChat();
     });
 
-    async function openAIChat() {
-        if (activeChat.type === 'private' && activeChat.chatId) {
-            socket.emit('leave-private-chat', { chatId: activeChat.chatId });
-        }
-
-        // Create AI chat room if needed
-        if (!aiChatId) {
-            try {
-                const resp = await fetch('/api/chats/create-private', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ targetUserId: currentUser.id }) // Self-chat for AI
-                });
-                const data = await resp.json();
-                if (data.success) aiChatId = data.chatId;
-                else aiChatId = -1; // Use -1 as fallback
-            } catch (e) {
-                aiChatId = -1;
-            }
-        }
-
-        activeChat = { type: 'ai', chatId: aiChatId, userId: null, username: 'AI Assistant' };
-        clearMessages();
-        hideTyping();
-
-        chatHeaderAvatar.textContent = '🤖';
-        chatHeaderAvatar.className = 'chat-header-avatar ai-avatar';
-        chatHeaderName.textContent = 'AI Assistant';
-        chatHeaderStatus.innerHTML = `<span class="status-dot connected"></span> Online`;
-
-        // Hide mood/topic for AI, show input area
-        featureControls.style.display = 'none';
-        topicFilterBar.style.display = 'none';
-        summarizeBtn.style.display = 'none';
-
-        highlightActiveChat('ai');
-
-        messageInput.placeholder = 'Ask AI anything... Try /help';
-
-        // Show welcome
-        addAIWelcome();
-
-        // Load previous AI messages if any
-        if (aiChatId && aiChatId > 0) {
-            loadPrivateMessages(aiChatId);
-        }
-
-        sidebar.classList.remove('show');
-        chatPanel.classList.add('show');
-        messageInput.focus();
-    }
-
-    function addAIWelcome() {
-        addMessage({
-            sender_username: 'AI Assistant',
-            message: "🤖 Hello! I'm your AI Assistant. Here's what I can do:\n\n📊 /summarize — Summarize chat\n🧮 /math 2+2 — Calculate\n📝 /notes [text] — Bullet points\n💡 /help — All commands\n\nJust type naturally or use commands!",
-            isAI: true,
-            timestamp: new Date()
-        });
-    }
-
-    // ============================================
-    // LOAD MESSAGES
-    // ============================================
-    async function loadGlobalMessages() {
-        try {
-            const resp = await fetch('/api/chat/messages?limit=50', { credentials: 'include' });
-            const data = await resp.json();
-            if (data.success && data.messages.length > 0) {
-                if (welcomeMessage) welcomeMessage.style.display = 'none';
-                data.messages.forEach(msg => addMessage(msg, false));
-                scrollToBottom();
-            }
-            loadTopics();
-        } catch (e) { console.error('Error loading messages:', e); }
-    }
-
-    async function loadPrivateMessages(chatId) {
-        try {
-            const resp = await fetch(`/api/chats/${chatId}/messages?limit=50`, { credentials: 'include' });
-            const data = await resp.json();
-            if (data.success && data.messages.length > 0) {
-                if (welcomeMessage) welcomeMessage.style.display = 'none';
-                data.messages.forEach(msg => addMessage(msg, false));
-                scrollToBottom();
-            }
-        } catch (e) { console.error('Error loading private messages:', e); }
-    }
-
-    async function loadTopics() {
-        try {
-            const resp = await fetch('/api/chat/topics', { credentials: 'include' });
-            const data = await resp.json();
-            if (data.success) {
-                filterPills.querySelectorAll('.filter-pill:not([data-topic="all"])').forEach(p => p.remove());
-                data.topics.forEach(t => addTopicPill(t));
-            }
-        } catch (e) { }
-    }
-
-    // ============================================
-    // SEND MESSAGE
-    // ============================================
-    messageForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const msg = messageInput.value.trim();
-        if (!msg) return;
-        if (!socket || !socket.connected) { alert('Not connected'); return; }
-
-        const topicsRaw = topicInput ? topicInput.value.trim() : '';
-        const topics = topicsRaw.split(',').map(t => t.trim().replace(/^#/, '')).filter(t => t);
-
-        if (activeChat.type === 'global') {
-            socket.emit('chat message', {
-                message: msg, mood: selectedMood, topics, isAnonymous
-            });
-        } else if (activeChat.type === 'private') {
-            socket.emit('send-private-message', {
-                chatId: activeChat.chatId, message: msg, mood: selectedMood, topics, isAnonymous
-            });
-        } else if (activeChat.type === 'ai') {
-            // Show user message immediately
-            addMessage({
-                sender_id: currentUser.id,
-                sender_username: currentUser.username,
-                message: msg, isAI: false, timestamp: new Date()
-            });
-            // Send to AI
-            socket.emit('send-ai-message', {
-                chatId: activeChat.chatId, message: msg
-            });
-        }
-
-        messageInput.value = '';
-        if (topicInput) topicInput.value = '';
-        socket.emit('stop typing');
-        messageInput.focus();
-    });
-
-    // ============================================
-    // TYPING
-    // ============================================
-    messageInput.addEventListener('input', () => {
-        if (!socket || !socket.connected) return;
-        // Don't show typing indicator when anonymous mode is on
-        if (isAnonymous) return;
-        if (activeChat.type === 'global') {
-            socket.emit('typing');
-        } else if (activeChat.type === 'private') {
-            socket.emit('typing-private', { chatId: activeChat.chatId });
-        }
-        if (typingTimeout) clearTimeout(typingTimeout);
-        typingTimeout = setTimeout(() => {
-            if (activeChat.type === 'global') socket.emit('stop typing');
-            else if (activeChat.type === 'private') socket.emit('stop-typing-private', { chatId: activeChat.chatId });
+    copyCodeBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(currentRoomCode);
+        copyCodeBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+        setTimeout(() => {
+            copyCodeBtn.innerHTML = '<i class="fa-regular fa-copy"></i>';
         }, 2000);
     });
 
-    // ============================================
-    // MOOD SELECTOR
-    // ============================================
-    moodButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            moodButtons.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            selectedMood = btn.dataset.mood;
+    enterCreatedRoomBtn.addEventListener('click', () => {
+        enterRoom(currentChatId, currentRoomCode);
+    });
+
+    // Join Room Flow
+    joinRoomForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const code = joinRoomCodeInput.value.trim().toUpperCase();
+        if (code.length !== 8) {
+            alert('Room code must be 8 characters long');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/rooms/join', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ roomCode: code })
+            });
+            const data = await res.json();
+            
+            if (data.success) {
+                enterRoom(data.chatId, data.roomCode);
+            } else {
+                alert(data.message || 'Failed to join room');
+            }
+        } catch (e) {
+            console.error('Join room error:', e);
+            alert('Failed to connect to server');
+        }
+    });
+
+    // Leave Room
+    leaveRoomBtn.addEventListener('click', () => {
+        leaveRoom();
+    });
+
+    // Kill Room
+    killRoomBtn.addEventListener('click', () => {
+        if (confirm('Are you sure you want to completely DESTROY this room and kick all users?')) {
+            socket.emit('kill-room', { chatId: currentChatId });
+        }
+    });
+
+    // Burn Toggle
+    if (burnToggleBtn) {
+        burnToggleBtn.addEventListener('click', () => {
+            isBurnMode = !isBurnMode;
+            burnToggleBtn.style.color = isBurnMode ? '#ef4444' : 'var(--text-muted)';
+        });
+    }
+
+    // Emoji Picker
+    if (emojiBtn && emojiPicker) {
+        emojiBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            emojiPicker.classList.toggle('hidden');
+        });
+        
+        document.addEventListener('click', () => {
+            emojiPicker.classList.add('hidden');
+        });
+
+        emojiPicker.querySelectorAll('.emoji-opt').forEach(opt => {
+            opt.addEventListener('click', (e) => {
+                e.stopPropagation();
+                messageInput.value += e.target.textContent;
+                emojiPicker.classList.add('hidden');
+                messageInput.focus();
+            });
+        });
+    }
+
+    // Send Message
+    messageForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const text = messageInput.value.trim();
+        if (!text || !currentChatId) return;
+
+        messageInput.value = '';
+        const encrypted = await encryptWithAES(text);
+
+        socket.emit('send-private-message', {
+            chatId: currentChatId,
+            message: encrypted,
+            mood: 'happy',
+            isBurn: isBurnMode
         });
     });
 
-    // ============================================
-    // ANONYMOUS TOGGLE
-    // ============================================
-    anonymousToggle.addEventListener('change', () => {
-        isAnonymous = anonymousToggle.checked;
-        document.getElementById('anonymous-toggle-wrapper').classList.toggle('active', isAnonymous);
-    });
-
-    // ============================================
-    // TOPIC FILTER
-    // ============================================
-    filterPills.querySelector('[data-topic="all"]').addEventListener('click', () => filterByTopic('all'));
-
-    function filterByTopic(topic) {
-        filterPills.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
-        const pill = filterPills.querySelector(`[data-topic="${topic}"]`);
-        if (pill) pill.classList.add('active');
-        clearMessages();
-        if (topic === 'all') {
-            loadGlobalMessages();
-        } else {
-            fetch(`/api/chat/messages?limit=50&topic=${encodeURIComponent(topic)}`, { credentials: 'include' })
-                .then(r => r.json()).then(d => {
-                    if (d.success) d.messages.forEach(msg => addMessage(msg, false));
-                });
-        }
-    }
-
-    function addTopicPill(topic) {
-        if (filterPills.querySelector(`[data-topic="${topic}"]`)) return;
-        const pill = document.createElement('button');
-        pill.className = 'filter-pill';
-        pill.dataset.topic = topic;
-        pill.textContent = `#${topic}`;
-        pill.addEventListener('click', () => filterByTopic(topic));
-        filterPills.appendChild(pill);
-    }
-
-    // ============================================
-    // SUMMARY
-    // ============================================
-    summarizeBtn.addEventListener('click', async () => {
-        summaryModal.classList.remove('hidden');
-        summaryLoading.classList.remove('hidden');
-        summaryResults.classList.add('hidden');
-        try {
-            const resp = await fetch('/api/chat/summarize', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                credentials: 'include', body: JSON.stringify({ limit: 50 })
-            });
-            displaySummary(await resp.json());
-        } catch (e) { displaySummary({ success: false, message: 'Failed' }); }
-    });
-
-    summaryClose.addEventListener('click', () => summaryModal.classList.add('hidden'));
-    summaryModal.addEventListener('click', (e) => { if (e.target === summaryModal) summaryModal.classList.add('hidden'); });
-
-    function displaySummary(data) {
-        summaryLoading.classList.add('hidden');
-        summaryResults.classList.remove('hidden');
-        if (!data.success) { summaryResults.innerHTML = `<p class="summary-empty">${data.message || 'No summary'}</p>`; return; }
-        let html = `<div class="summary-section"><div class="summary-overview"><span class="summary-stat">📝 ${data.messageCount || 0} msgs</span><span class="summary-stat">👥 ${data.participantCount || 0} users</span></div><p class="summary-text">${escapeHtml(data.summary)}</p></div>`;
-        if (data.discussionTopics?.length) html += `<div class="summary-section"><h3>🗂️ Topics</h3><div class="summary-topics">${data.discussionTopics.map(t => `<span class="summary-topic-pill">${escapeHtml(t)}</span>`).join('')}</div></div>`;
-        if (data.keyPoints?.length) html += `<div class="summary-section"><h3>💡 Key Points</h3><ul class="summary-list">${data.keyPoints.map(p => `<li>${escapeHtml(p)}</li>`).join('')}</ul></div>`;
-        if (data.keywords?.length) html += `<div class="summary-section"><h3>🔑 Keywords</h3><div class="summary-keywords">${data.keywords.slice(0, 10).map(k => `<span class="keyword-pill">${escapeHtml(k.word)} <small>(${k.count})</small></span>`).join('')}</div></div>`;
-        summaryResults.innerHTML = html;
-    }
-
-    // ============================================
-    // REVEAL SENDER
-    // ============================================
-    revealClose.addEventListener('click', () => revealModal.classList.add('hidden'));
-    revealModal.addEventListener('click', (e) => { if (e.target === revealModal) revealModal.classList.add('hidden'); });
-
-    async function revealSender(msgId) {
-        try {
-            const resp = await fetch('/api/chat/reveal-sender', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                credentials: 'include', body: JSON.stringify({ messageId: msgId })
-            });
-            const data = await resp.json();
-            if (data.success) { revealUsername.textContent = data.realSender; revealModal.classList.remove('hidden'); }
-            else alert(data.message || 'Cannot reveal');
-        } catch (e) { console.error('Reveal error:', e); }
-    }
-
-    // ============================================
-    // LOGOUT
-    // ============================================
+    // Logout
     logoutBtn.addEventListener('click', async () => {
-        if (socket) socket.disconnect();
-        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-        window.location.href = '/';
+        try {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            sessionStorage.clear();
+            window.location.href = '/';
+        } catch (e) {
+            console.error('Logout error:', e);
+        }
     });
 
-    // ============================================
-    // MESSAGE RENDERING
-    // ============================================
-    function addMessage(data, animate = true) {
-        if (welcomeMessage) welcomeMessage.style.display = 'none';
-
-        const el = document.createElement('div');
-        const isOwn = data.sender_id === currentUser?.id || data.user_id === currentUser?.id ||
-            (data.username === currentUser?.username && !data.isAI) ||
-            (data.sender_username === currentUser?.username && !data.isAI);
-        const isAI = data.isAI || data.is_ai;
-        const mood = data.mood || 'happy';
-
-        el.className = `message ${isAI ? 'ai-msg' : (isOwn ? 'own' : 'other')} mood-${mood}`;
-        if (data.isAnonymous || data.is_anonymous) el.classList.add('anonymous');
-        if (!animate) el.style.animation = 'none';
-
-        const time = formatTime(data.timestamp);
-        const moodInfo = moodConfig[mood] || moodConfig.happy;
-        const topics = Array.isArray(data.topics) ? data.topics :
-            (data.topics && typeof data.topics === 'string' ? data.topics.split(',').filter(t => t) : []);
-
-        const username = data.sender_username || data.username || 'Unknown';
-
-        let topicsHtml = '';
-        if (topics.length > 0) {
-            topicsHtml = `<div class="message-topics">${topics.map(t => `<span class="topic-tag">#${escapeHtml(t)}</span>`).join('')}</div>`;
-        }
-
-        let anonBadge = (data.isAnonymous || data.is_anonymous) ? '<span class="anon-badge">🕵️</span>' : '';
-        let revealBtnHtml = (data.isAnonymous || data.is_anonymous) && currentUser?.isAdmin ? `<button class="reveal-btn" data-msg-id="${data.id}">🔍</button>` : '';
-        let seenHtml = isOwn && activeChat.type === 'private' ? `<span class="seen-status ${data.isSeen || data.is_seen ? 'seen' : ''}">${data.isSeen || data.is_seen ? '✓✓' : '✓'}</span>` : '';
-
-        const avatarEmoji = isAI ? '🤖' : '👤';
-        const moodEmoji = !isAI ? `<span class="mood-emoji">${moodInfo.emoji}</span>` : '';
-
-        // Determine message content type
-        const msgType = data.message_type || data.messageType || 'text';
-        const fileUrl = data.file_url || data.fileUrl;
-        const fileName = data.file_name || data.fileName;
-        const fileSize = data.file_size || data.fileSize;
-
-        let msgContent = '';
-
-        if (msgType === 'image' && fileUrl) {
-            msgContent = `<div class="media-content image-content"><img src="${escapeHtml(fileUrl)}" alt="${escapeHtml(fileName || 'Image')}" class="chat-image" onclick="document.getElementById('image-viewer-img').src=this.src;document.getElementById('image-viewer-modal').classList.remove('hidden')" loading="lazy"></div>`;
-        } else if (msgType === 'video' && fileUrl) {
-            msgContent = `<div class="media-content video-content"><video src="${escapeHtml(fileUrl)}" controls class="chat-video" preload="metadata"></video></div>`;
-        } else if (msgType === 'file' && fileUrl) {
-            const sizeStr = fileSize ? formatFileSize(fileSize) : '';
-            msgContent = `<div class="media-content file-content"><div class="file-card"><span class="file-icon">📁</span><div class="file-info"><span class="file-card-name">${escapeHtml(fileName || 'File')}</span><span class="file-card-size">${sizeStr}</span></div><a href="${escapeHtml(fileUrl)}" target="_blank" class="file-download-btn" download>⬇️</a></div></div>`;
-        } else {
-            // Text message
-            let msgText = escapeHtml(data.message);
-            if (isAI) {
-                msgText = msgText
-                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                    .replace(/`(.*?)`/g, '<code>$1</code>')
-                    .replace(/\n/g, '<br>');
-            }
-            msgContent = `<div class="message-content">${msgText}</div>`;
-        }
-
-        el.innerHTML = `
-            <div class="message-avatar">${avatarEmoji}</div>
-            <div class="message-body">
-                <div class="message-header">
-                    <span class="message-username">${escapeHtml(username)}</span>
-                    ${anonBadge} ${moodEmoji}
-                    <span class="message-time">${time}</span>
-                    ${seenHtml} ${revealBtnHtml}
-                </div>
-                ${msgContent}
-                ${topicsHtml}
+    // Functions
+    async function enterRoom(chatId, roomCode) {
+        currentChatId = chatId;
+        currentRoomCode = roomCode;
+        
+        sessionStorage.setItem('ticTalkChatId', chatId);
+        sessionStorage.setItem('ticTalkRoomCode', roomCode);
+        
+        await deriveKeyFromRoomCode(roomCode);
+        
+        lobbyScreen.style.display = 'none';
+        appContainer.style.display = 'flex';
+        chatHeaderName.textContent = `Room: ${roomCode}`;
+        
+        messagesContainer.innerHTML = `
+            <div class="system-message" id="welcome-message">
+                <p><i class="fa-solid fa-hand"></i> Welcome to room ${roomCode}! Messages are E2EE and delete after 24h.</p>
             </div>
         `;
-
-        const revealBtn = el.querySelector('.reveal-btn');
-        if (revealBtn) revealBtn.addEventListener('click', () => revealSender(parseInt(revealBtn.dataset.msgId)));
-
-        messagesContainer.appendChild(el);
-        scrollToBottom();
+        
+        socket.emit('join-private-chat', { chatId });
     }
 
-    function addNotification(msg, type) {
-        const el = document.createElement('div');
-        el.className = `notification ${type}`;
-        el.innerHTML = `<span>${{ join: '→', leave: '←', info: 'ℹ️' }[type] || '•'}</span> <span>${escapeHtml(msg)}</span>`;
-        messagesContainer.appendChild(el);
-        scrollToBottom();
-    }
-
-    // ============================================
-    // HELPERS
-    // ============================================
-    function clearMessages() {
-        messagesContainer.querySelectorAll('.message, .notification').forEach(m => m.remove());
-        if (welcomeMessage) welcomeMessage.style.display = '';
-        messageInput.placeholder = activeChat.type === 'ai' ? 'Ask AI anything... Try /help' : 'Type a message...';
-    }
-
-    function highlightActiveChat(id) {
-        document.querySelectorAll('.chat-item').forEach(c => c.classList.remove('active-chat'));
-        if (id === 'global') {
-            document.getElementById('global-chat-item')?.classList.add('active-chat');
-        } else if (id === 'ai') {
-            document.getElementById('ai-chat-item')?.classList.add('active-chat');
-        } else {
-            const item = privateChatList.querySelector(`[data-chat-id="${id}"]`);
-            if (item) item.classList.add('active-chat');
+    function leaveRoom(forced = false) {
+        if (!forced && currentChatId) {
+            socket.emit('leave-private-chat', { chatId: currentChatId });
         }
+        currentChatId = null;
+        currentRoomCode = null;
+        currentSessionKey = null;
+        sessionStorage.removeItem('ticTalkChatId');
+        sessionStorage.removeItem('ticTalkRoomCode');
+        
+        appContainer.style.display = 'none';
+        lobbyScreen.style.display = 'block';
+        
+        // Reset create room UI
+        createRoomBtn.style.display = 'block';
+        roomCodeDisplay.classList.add('hidden');
+        joinRoomCodeInput.value = '';
     }
 
-    function updateOnlineIndicators() {
-        document.querySelectorAll('.user-item').forEach(item => {
-            const uid = parseInt(item.dataset.userId);
-            const dot = item.querySelector('.online-dot');
-            const preview = item.querySelector('.chat-item-preview');
-            const isOn = onlineUserIds.has(uid);
-            if (dot) dot.className = `online-dot ${isOn ? 'online' : ''}`;
-            if (preview) preview.innerHTML = isOn ? '<span class="online-text">Online</span>' : 'Offline';
-        });
-        document.querySelectorAll('#private-chat-list .chat-item').forEach(item => {
-            const uid = parseInt(item.dataset.userId);
-            const dot = item.querySelector('.online-dot-small');
-            if (dot) dot.className = `online-dot-small ${onlineUserIds.has(uid) ? 'online' : ''}`;
-        });
-        // Update header if in private chat
-        if (activeChat.type === 'private' && activeChat.userId) {
-            const isOn = onlineUserIds.has(activeChat.userId);
-            chatHeaderStatus.innerHTML = `<span class="online-dot ${isOn ? 'online' : ''}"></span> ${isOn ? 'Online' : 'Offline'}`;
+    function appendMessage(id, senderName, text, isMe, timestamp, isBurn) {
+        const div = document.createElement('div');
+        div.className = `message ${isMe ? 'sent' : 'received'}`;
+        div.id = 'msg-' + id;
+        
+        const timeStr = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
+        let burnHtml = '';
+        if (isBurn) {
+            burnHtml = `<div class="burn-indicator" style="font-size: 0.75rem; color: #ef4444; margin-top: 5px;"><i class="fa-solid fa-fire"></i> Destructing...</div>`;
+            
+            // Delete locally and trigger backend delete
+            setTimeout(() => {
+                socket.emit('delete-message', { messageId: id, chatType: 'private', chatId: currentChatId });
+                div.remove();
+            }, 10000);
         }
+        
+        div.innerHTML = `
+            <div class="message-content glass-morphic" oncontextmenu="showMessageMenu(event, ${id})">
+                ${!isMe ? `<div class="message-sender" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 2px;">${senderName}</div>` : ''}
+                <div class="message-text">${escapeHtml(text)}</div>
+                ${burnHtml}
+                <div class="message-info">
+                    <span class="message-time">${timeStr}</span>
+                </div>
+            </div>
+        `;
+        
+        messagesContainer.appendChild(div);
     }
 
-    function updateHeaderStatus(text, cls) {
-        if (activeChat.type === 'global') {
-            chatHeaderStatus.innerHTML = `<span class="status-dot ${cls}"></span> ${text}`;
-        }
+    function scrollToBottom() {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
-
-    function showTyping(username) {
-        typingText.textContent = `${username} is typing`;
-        typingIndicator.classList.remove('hidden');
+    
+    function escapeHtml(unsafe) {
+        return unsafe
+             .replace(/&/g, "&amp;")
+             .replace(/</g, "&lt;")
+             .replace(/>/g, "&gt;")
+             .replace(/"/g, "&quot;")
+             .replace(/'/g, "&#039;");
     }
-
-    function hideTyping() { typingIndicator.classList.add('hidden'); }
-    function scrollToBottom() { messagesContainer.scrollTop = messagesContainer.scrollHeight; }
-    function formatTime(ts) { return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
-    function escapeHtml(text) {
-        if (!text) return '';
-        const d = document.createElement('div');
-        d.textContent = text;
-        return d.innerHTML;
-    }
-
-    // Keyboard shortcuts
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            summaryModal.classList.add('hidden');
-            revealModal.classList.add('hidden');
-            const imgViewer = document.getElementById('image-viewer-modal');
-            if (imgViewer) imgViewer.classList.add('hidden');
-        }
-    });
-
-    // ============================================
-    // IMAGE VIEWER MODAL
-    // ============================================
-    const imageViewerModal = document.getElementById('image-viewer-modal');
-    const imageViewerClose = document.getElementById('image-viewer-close');
-    if (imageViewerClose) imageViewerClose.addEventListener('click', () => imageViewerModal.classList.add('hidden'));
-    if (imageViewerModal) imageViewerModal.addEventListener('click', (e) => { if (e.target === imageViewerModal) imageViewerModal.classList.add('hidden'); });
-
-
-    // ============================================
-    // PROFILE EDIT MODAL
-    // ============================================
-    const profileModal = document.getElementById('profile-modal');
-    const profileModalClose = document.getElementById('profile-modal-close');
-    const profileCancelBtn = document.getElementById('profile-cancel-btn');
-    const profileSaveBtn = document.getElementById('profile-save-btn');
-    const profileAvatarWrapper = document.getElementById('profile-avatar-wrapper');
-    const profileAvatarInput = document.getElementById('profile-avatar-input');
-    const profileAvatarPreview = document.getElementById('profile-avatar-preview');
-    const profileAvatarFallback = document.getElementById('profile-avatar-fallback');
-    const profileUsernameInput = document.getElementById('profile-username-input');
-    const profileStatus = document.getElementById('profile-status');
-    const editProfileBtn = document.getElementById('edit-profile-btn');
-    const profileTrigger = document.getElementById('profile-trigger');
-    const avatarFileInput = document.getElementById('avatar-file-input');
-
-    let pendingAvatarFile = null;
-
-    // Open profile modal
-    function openProfileModal() {
-        // Populate current values
-        profileUsernameInput.value = currentUser.username || '';
-        profileStatus.classList.add('hidden');
-        profileModal.classList.remove('hidden');
-        profileUsernameInput.focus();
-    }
-
-    // Close profile modal
-    function closeProfileModal() {
-        profileModal.classList.add('hidden');
-    }
-
-    // Open modal triggers
-    if (editProfileBtn) editProfileBtn.addEventListener('click', (e) => { e.stopPropagation(); openProfileModal(); });
-    if (profileTrigger) profileTrigger.addEventListener('click', (e) => {
-        // Don't open if clicking logout button
-        if (e.target.closest('.logout-btn')) return;
-        if (e.target.closest('.edit-profile-btn')) return;
-        openProfileModal();
-    });
-
-    // Close modal triggers
-    if (profileModalClose) profileModalClose.addEventListener('click', closeProfileModal);
-    if (profileCancelBtn) profileCancelBtn.addEventListener('click', closeProfileModal);
-    if (profileModal) profileModal.addEventListener('click', (e) => { if (e.target === profileModal) closeProfileModal(); });
-
-    // Click avatar to pick image
-    // Avatar upload removed
-
-    // Show status message
-    function showProfileStatus(msg, type) {
-        profileStatus.textContent = msg;
-        profileStatus.className = `profile-status ${type}`;
-        profileStatus.classList.remove('hidden');
-    }
-
-    // Save profile changes
-    if (profileSaveBtn) profileSaveBtn.addEventListener('click', async () => {
-        const newUsername = profileUsernameInput.value.trim();
-        const usernameChanged = newUsername && newUsername !== currentUser.username;
-
-        profileSaveBtn.disabled = true;
-        profileSaveBtn.textContent = 'Saving...';
-        profileStatus.classList.add('hidden');
-
-        try {
-            // Update username if changed
-            if (usernameChanged) {
-                const nameResp = await fetch('/api/upload/update-username', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ username: newUsername })
-                });
-                const nameData = await nameResp.json();
-
-                if (nameData.success) {
-                    currentUser.username = nameData.username;
-                    document.getElementById('current-username').textContent = nameData.username;
-                } else {
-                    showProfileStatus(nameData.message || 'Failed to update name', 'error');
-                    profileSaveBtn.disabled = false;
-                    profileSaveBtn.textContent = 'Save Changes';
-                    return;
-                }
-            }
-
-            showProfileStatus('Profile updated successfully! ✅', 'success');
-            setTimeout(() => closeProfileModal(), 1200);
-
-        } catch (error) {
-            console.error('Profile save error:', error);
-            showProfileStatus('Something went wrong. Please try again.', 'error');
-        }
-
-        profileSaveBtn.disabled = false;
-        profileSaveBtn.textContent = 'Save Changes';
-    });
-
-    // Also handle Escape for profile modal
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !profileModal.classList.contains('hidden')) {
-            closeProfileModal();
-        }
-    });
-
-
-    // ============================================
-    // HELPER: Format file size
-    // ============================================
-    function formatFileSize(bytes) {
-        if (!bytes) return '';
-        if (bytes < 1024) return bytes + ' B';
-        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-    }
-
-    window.addEventListener('beforeunload', () => { if (socket) socket.disconnect(); });
 });
 
-console.log('✅ Chat.js loaded (Private Chat + AI Chatbot)');
+// --- Message Context Menu ---
+let activeMenuId = null;
+
+window.showMessageMenu = function(e, messageId) {
+    e.preventDefault();
+    closeAllMenus();
+    
+    const menu = document.createElement('div');
+    menu.className = 'message-menu glass-morphic';
+    menu.id = 'menu-' + messageId;
+    activeMenuId = messageId;
+    
+    menu.innerHTML = `
+        <div class="menu-item danger" onclick="handleMenuAction('delete', ${messageId})"><i class="fa-solid fa-trash"></i> Delete</div>
+        <div class="menu-divider" style="border-top: 1px solid rgba(255,255,255,0.1); margin: 5px 0;"></div>
+        <div class="reaction-row" style="display: flex; gap: 8px; justify-content: center; padding: 5px;">
+            <span class="react-opt" style="cursor:pointer;" onclick="handleReaction(${messageId}, '❤️')">❤️</span>
+            <span class="react-opt" style="cursor:pointer;" onclick="handleReaction(${messageId}, '😂')">😂</span>
+            <span class="react-opt" style="cursor:pointer;" onclick="handleReaction(${messageId}, '🔥')">🔥</span>
+            <span class="react-opt" style="cursor:pointer;" onclick="handleReaction(${messageId}, '👍')">👍</span>
+            <span class="react-opt" style="cursor:pointer;" onclick="handleReaction(${messageId}, '😮')">😮</span>
+        </div>
+    `;
+    
+    document.body.appendChild(menu);
+    
+    const rect = e.target.closest('.message-content').getBoundingClientRect();
+    menu.style.top = (rect.top + window.scrollY - 40) + 'px';
+    menu.style.left = (rect.left + window.scrollX) + 'px';
+};
+
+function closeAllMenus() {
+    document.querySelectorAll('.message-menu').forEach(m => m.remove());
+    activeMenuId = null;
+}
+
+window.handleMenuAction = (action, messageId) => {
+    if (action === 'delete') {
+        socket.emit('delete-message', { messageId, chatType: 'private', chatId: currentChatId });
+        document.getElementById('msg-' + messageId)?.remove();
+    }
+    closeAllMenus();
+};
+
+window.handleReaction = (messageId, emoji) => {
+    socket.emit('add-reaction', { messageId, chatId: currentChatId, emoji });
+    closeAllMenus();
+};
+
+document.addEventListener('click', closeAllMenus);
+
+// Handle Theme Switching
+document.addEventListener('DOMContentLoaded', () => {
+    const themeBtn = document.getElementById('theme-btn');
+    const themeDropdown = document.getElementById('theme-dropdown');
+    
+    if (themeBtn && themeDropdown) {
+        themeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            themeDropdown.classList.toggle('hidden');
+        });
+        
+        document.addEventListener('click', () => {
+            themeDropdown.classList.add('hidden');
+        });
+        
+        document.querySelectorAll('.theme-opt').forEach(opt => {
+            opt.addEventListener('click', (e) => {
+                const theme = e.target.getAttribute('data-theme');
+                document.documentElement.setAttribute('data-theme', theme);
+                localStorage.setItem('ticTalkTheme', theme); // persist
+            });
+        });
+    }
+});

@@ -4,142 +4,116 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="ChatApp - Real-Time Chat with Private Messaging & AI Assistant">
-    <title>ChatApp - Chat</title>
+    <meta name="description" content="Tic Talk - Real-Time Chat with Private Messaging & AI Assistant">
+    <title>Tic Talk - Chat</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script>
+        // Prevent FOUC
+        document.documentElement.setAttribute('data-theme', 'light');
+    </script>
 </head>
 
 <body class="chat-page">
-    <div class="app-container">
-        <!-- ============================================
-             LEFT SIDEBAR - Users, Chats, AI
-             ============================================ -->
-        <aside class="sidebar" id="sidebar">
-            <!-- Sidebar Header -->
-            <div class="sidebar-header">
-                <div class="sidebar-logo">
-                    <span>💬</span>
-                    <h2>ChatApp</h2>
-                </div>
-                <div class="sidebar-actions">
-                    <button class="icon-btn" id="toggle-sidebar" title="Toggle sidebar">☰</button>
-                </div>
+    <!-- ============================================
+         LOBBY SCREEN (Initial View)
+         ============================================ -->
+    <div class="lobby-screen" id="lobby-screen">
+        <div class="incognito-banner" id="incognito-banner" style="position: absolute; top: 0; left: 0; width: 100%; background: rgba(255, 153, 0, 0.9); color: #000; text-align: center; padding: 10px; font-size: 0.9rem; z-index: 1001; display: flex; justify-content: center; align-items: center; gap: 10px; font-weight: 500;">
+            <i class="fa-solid fa-user-secret"></i>
+            <span><strong>Incognito Warning:</strong> Your keys are tied to this browser tab. Closing it will permanently lose access to your rooms.</span>
+            <button id="dismiss-banner" class="icon-btn" title="Dismiss" style="color: #000; margin-left: 10px;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="lobby-container">
+            <div class="lobby-header">
+                <span class="logo-icon"><i class="fa-regular fa-comments"></i></span>
+                <h2>Tic Talk</h2>
+                <p>Anonymous & Ephemeral Rooms</p>
             </div>
-
-            <!-- User Info (clickable to open profile editor) -->
-            <div class="sidebar-user-info" id="profile-trigger" title="Click to edit profile" style="cursor:pointer;">
-                <img class="user-avatar-img" id="current-user-avatar" src="" alt=""
-                    onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
-                <span class="user-avatar" id="current-user-avatar-fallback">👤</span>
-                <span class="username" id="current-username">Loading...</span>
-                <span class="admin-badge hidden" id="admin-badge">⭐</span>
-                <button class="icon-btn edit-profile-btn" id="edit-profile-btn"
-                    title="Edit Profile">✏️</button>
-                <input type="file" id="avatar-file-input" accept="image/*" style="display:none">
-                <button class="icon-btn logout-btn" id="logout-btn" title="Logout">✕</button>
-            </div>
-
-            <!-- Search -->
-            <div class="sidebar-search">
-                <input type="text" id="user-search" placeholder="🔍 Search users..." autocomplete="off">
-            </div>
-
-            <!-- Chat Tabs -->
-            <div class="sidebar-tabs">
-                <button class="sidebar-tab active" data-tab="chats" id="tab-chats">
-                    <span>💬</span> Chats
-                </button>
-                <button class="sidebar-tab" data-tab="users" id="tab-users">
-                    <span>👥</span> Users
-                </button>
-                <button class="sidebar-tab" data-tab="global" id="tab-global">
-                    <span>🌐</span> Global
-                </button>
-            </div>
-
-            <!-- Chat List (Private Chats + AI) -->
-            <div class="sidebar-content active" id="content-chats">
-                <!-- AI Assistant Entry -->
-                <div class="chat-item ai-chat-item" id="ai-chat-item" data-chat="ai">
-                    <div class="chat-avatar ai-avatar">🤖</div>
-                    <div class="chat-item-info">
-                        <div class="chat-item-name">AI Assistant</div>
-                        <div class="chat-item-preview">Ask me anything! Type /help</div>
-                    </div>
-                    <div class="chat-item-meta">
-                        <span class="ai-label">AI</span>
+            
+            <div class="lobby-actions">
+                <!-- Create Room -->
+                <div class="lobby-card create-card">
+                    <h3><i class="fa-solid fa-plus"></i> Create a Room</h3>
+                    <p>Start a new secure, anonymous chat room. Share the code with others to let them join.</p>
+                    <button class="submit-btn create-room-btn" id="create-room-btn">
+                        <span class="btn-text">Generate Room Code</span>
+                    </button>
+                    <div class="room-code-display hidden" id="room-code-display">
+                        <p>Your Room Code:</p>
+                        <div style="display:flex; justify-content:center; align-items:center; gap:10px;">
+                            <h1 id="generated-room-code" style="margin:0;">--------</h1>
+                            <button id="copy-code-btn" class="icon-btn" title="Copy code" style="font-size:1.2rem; color:var(--primary-color);"><i class="fa-regular fa-copy"></i></button>
+                        </div>
+                        <button class="submit-btn enter-room-btn" id="enter-created-room-btn" style="margin-top:15px;">Enter Room</button>
                     </div>
                 </div>
-                <div class="divider"></div>
-                <!-- Private chats dynamically added -->
-                <div id="private-chat-list"></div>
-                <div class="empty-state" id="no-chats-msg">
-                    <p>No private chats yet</p>
-                    <small>Click a user in the Users tab to start chatting</small>
+
+                <div class="lobby-divider"><span>OR</span></div>
+
+                <!-- Join Room -->
+                <div class="lobby-card join-card">
+                    <h3><i class="fa-solid fa-door-open"></i> Join a Room</h3>
+                    <p>Enter an 8-digit room code to join an existing secure chat.</p>
+                    <form id="join-room-form">
+                        <input type="text" id="join-room-code" placeholder="Enter 8-digit code" maxlength="8" autocomplete="off" required style="text-transform: uppercase;">
+                        <button type="submit" class="submit-btn join-room-btn" id="join-room-btn">
+                            <span class="btn-text">Join Room</span>
+                        </button>
+                    </form>
                 </div>
             </div>
-
-            <!-- Users List -->
-            <div class="sidebar-content" id="content-users">
-                <div id="users-list"></div>
-                <div class="empty-state" id="no-users-msg">
-                    <p>No other users found</p>
-                </div>
+            
+            <!-- Logout / Profile -->
+            <div class="lobby-footer">
+                <span class="username" id="current-username">Logged in as: ...</span>
+                <button class="icon-btn logout-btn" id="logout-btn" title="Logout"><i class="fa-solid fa-arrow-right-from-bracket"></i></button>
             </div>
+        </div>
+    </div>
 
-            <!-- Global Chat Tab -->
-            <div class="sidebar-content" id="content-global">
-                <div class="chat-item global-chat-item active-chat" id="global-chat-item" data-chat="global">
-                    <div class="chat-avatar global-avatar">🌐</div>
-                    <div class="chat-item-info">
-                        <div class="chat-item-name">Global Chat</div>
-                        <div class="chat-item-preview">Chat with everyone</div>
-                    </div>
-                </div>
-            </div>
-        </aside>
-
-        <!-- ============================================
-             RIGHT PANEL - Active Chat
-             ============================================ -->
-        <main class="chat-panel" id="chat-panel">
+    <!-- ============================================
+         RIGHT PANEL - Active Chat (Hidden initially)
+         ============================================ -->
+    <div class="app-container" id="app-container" style="display: none;">
+        <main class="chat-panel" id="chat-panel" style="flex: 1; height: 100vh;">
             <!-- Chat Header -->
             <header class="chat-header" id="chat-header">
-                <button class="icon-btn back-btn" id="back-btn" title="Back to sidebar">←</button>
+                <button class="icon-btn back-btn" id="leave-room-btn" title="Leave Room"><i class="fa-solid fa-arrow-left"></i> Leave</button>
                 <div class="chat-header-info">
-                    <div class="chat-header-avatar" id="chat-header-avatar">🌐</div>
+                    <div class="chat-header-avatar" id="chat-header-avatar"><i class="fa-solid fa-lock"></i></div>
                     <div class="chat-header-details">
-                        <span class="chat-header-name" id="chat-header-name">Global Chat</span>
+                        <span class="chat-header-name" id="chat-header-name">Room: ------</span>
                         <span class="chat-header-status" id="chat-header-status">
-                            <span class="status-dot connected"></span> Connected
+                            <span class="status-dot connected"></span> Secure (E2EE)
                         </span>
                     </div>
                 </div>
-                <div class="chat-header-actions">
-                    <!-- Summarize (global only) -->
-                    <button class="feature-btn" id="summarize-btn" title="Summarize Chat">
-                        <span>📊</span> <span class="btn-label">Summary</span>
-                    </button>
+                <div class="chat-header-actions" style="margin-left:auto; display:flex; gap:10px;">
+                    <div style="position:relative;">
+                        <button class="icon-btn" id="theme-btn" title="Change Theme"><i class="fa-solid fa-gear"></i></button>
+                        <div class="theme-dropdown hidden" id="theme-dropdown">
+                            <button class="theme-opt" data-theme="ocean">Ocean Blue</button>
+                            <button class="theme-opt" data-theme="hacker">Hacker Green</button>
+                            <button class="theme-opt" data-theme="cyberpunk">Cyberpunk Purple</button>
+                        </div>
+                    </div>
+                    <button class="feature-btn danger-btn" id="kill-room-btn" title="Force delete room now" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid #ef4444; padding: 6px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: all 0.2s;"><i class="fa-solid fa-skull"></i> <span class="btn-label">Kill Switch</span></button>
                 </div>
             </header>
-
-            <!-- Topic Filter Bar (global only) -->
-            <div class="topic-filter-bar" id="topic-filter-bar">
-                <span class="filter-label">🏷️ Filter:</span>
-                <div class="filter-pills" id="filter-pills">
-                    <button class="filter-pill active" data-topic="all">All</button>
-                </div>
-            </div>
 
             <!-- Messages Area -->
             <div class="messages-container" id="messages-container">
                 <div class="system-message" id="welcome-message">
-                    <p>👋 Welcome! Select a chat from the sidebar to begin.</p>
+                    <p><i class="fa-solid fa-hand"></i> Welcome to the secure room! Messages are E2EE and delete after 24h.</p>
                 </div>
             </div>
+
+            <!-- Jump to Bottom FAB -->
+            <button class="jump-bottom-btn hidden" id="jump-bottom-btn" title="Jump to bottom"><i class="fa-solid fa-chevron-down"></i></button>
 
             <!-- Typing Indicator -->
             <div class="typing-indicator hidden" id="typing-indicator">
@@ -147,36 +121,32 @@
                 <span class="typing-dots"><span></span><span></span><span></span></span>
             </div>
 
-            <!-- Feature Controls (Mood + Topics + Anon) -->
-            <div class="feature-controls" id="feature-controls">
-                <div class="mood-selector">
-                    <span class="control-label">Mood:</span>
-                    <div class="mood-options">
-                        <button class="mood-btn active" data-mood="happy" title="Happy">😊</button>
-                        <button class="mood-btn" data-mood="sad" title="Sad">😢</button>
-                        <button class="mood-btn" data-mood="angry" title="Angry">😡</button>
-                        <button class="mood-btn" data-mood="calm" title="Calm">😌</button>
-                        <button class="mood-btn" data-mood="excited" title="Excited">🤩</button>
-                    </div>
-                </div>
-                <div class="topic-input-wrapper">
-                    <span class="control-label">Topics:</span>
-                    <input type="text" id="topic-input" class="topic-input" placeholder="#tag..." maxlength="200">
-                </div>
-                <div class="anonymous-toggle-wrapper" id="anonymous-toggle-wrapper">
-                    <span class="control-label">🕵️ Anon:</span>
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="anonymous-toggle">
-                        <span class="toggle-slider"></span>
-                    </label>
-                </div>
-            </div>
-
             <!-- Message Input -->
             <footer class="chat-footer">
                 <form class="message-form" id="message-form">
+                    
                     <div class="input-wrapper">
-                        <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off"
+                        <!-- Reply Preview Bar -->
+                        <div class="reply-preview-bar hidden" id="reply-preview-bar">
+                            <div class="reply-preview-content">
+                                <span class="reply-preview-label"><i class="fa-solid fa-reply"></i> Replying to <strong id="reply-preview-name"></strong></span>
+                                <span class="reply-preview-text" id="reply-preview-text"></span>
+                            </div>
+                            <button type="button" class="reply-cancel-btn" id="reply-cancel-btn" title="Cancel reply"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <button type="button" class="icon-btn" id="burn-toggle-btn" title="Toggle Burn Mode (10s Self-Destruct)" style="color:var(--text-muted); font-size:1.2rem; cursor:pointer; padding:0 10px; border:none; background:none; transition:color 0.2s;"><i class="fa-solid fa-fire"></i></button>
+                        <button type="button" class="emoji-btn" id="emoji-btn" title="Add emoji" style="background:none; border:none; color:var(--text-muted); font-size:1.2rem; cursor:pointer; padding:0 10px; transition:color 0.2s;"><i class="fa-regular fa-face-smile"></i></button>
+                        <div class="emoji-picker hidden" id="emoji-picker">
+                            <span class="emoji-opt">😀</span>
+                            <span class="emoji-opt">😂</span>
+                            <span class="emoji-opt">❤️</span>
+                            <span class="emoji-opt">👍</span>
+                            <span class="emoji-opt">🔥</span>
+                            <span class="emoji-opt">😎</span>
+                            <span class="emoji-opt">😭</span>
+                            <span class="emoji-opt">✨</span>
+                        </div>
+                        <input type="text" id="message-input" placeholder="Type an encrypted message..." autocomplete="off"
                             maxlength="1000">
                     </div>
                     <button type="submit" class="send-btn" id="send-btn" title="Send">
@@ -187,61 +157,6 @@
                 </form>
             </footer>
         </main>
-    </div>
-
-    <!-- Profile Edit Modal -->
-    <div class="modal-overlay hidden" id="profile-modal">
-        <div class="modal-content profile-modal-content">
-            <div class="modal-header">
-                <h2>✏️ Edit Profile</h2>
-                <button class="modal-close" id="profile-modal-close">&times;</button>
-            </div>
-            <div class="modal-body profile-modal-body">
-                <!-- Username Section -->
-                <div class="profile-field">
-                    <label class="profile-field-label" for="profile-username-input">Display Name</label>
-                    <input type="text" id="profile-username-input" class="profile-input" placeholder="Enter new name..." maxlength="30" autocomplete="off">
-                    <span class="profile-field-hint">3-30 characters. Letters, numbers, spaces, hyphens, underscores.</span>
-                </div>
-                <!-- Status Message -->
-                <div class="profile-status hidden" id="profile-status"></div>
-                <!-- Action Buttons -->
-                <div class="profile-actions">
-                    <button class="profile-btn profile-btn-cancel" id="profile-cancel-btn">Cancel</button>
-                    <button class="profile-btn profile-btn-save" id="profile-save-btn">Save Changes</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Summary Modal -->
-    <div class="modal-overlay hidden" id="summary-modal">
-        <div class="modal-content summary-modal-content">
-            <div class="modal-header">
-                <h2>📊 Chat Summary</h2>
-                <button class="modal-close" id="summary-close">&times;</button>
-            </div>
-            <div class="modal-body" id="summary-body">
-                <div class="summary-loading" id="summary-loading">
-                    <div class="summary-spinner"></div>
-                    <p>Analyzing messages...</p>
-                </div>
-                <div class="summary-results hidden" id="summary-results"></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Reveal Modal -->
-    <div class="modal-overlay hidden" id="reveal-modal">
-        <div class="modal-content reveal-modal-content">
-            <div class="modal-header">
-                <h2>🔍 Reveal Sender</h2>
-                <button class="modal-close" id="reveal-close">&times;</button>
-            </div>
-            <div class="modal-body" id="reveal-body">
-                <p>Real sender: <strong id="reveal-username">—</strong></p>
-            </div>
-        </div>
     </div>
 
     <!-- Image Viewer Modal -->

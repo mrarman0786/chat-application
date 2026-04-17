@@ -387,4 +387,36 @@ function generateSummary(messages) {
     };
 }
 
+/**
+ * DELETE /api/chat/messages/:id
+ * Delete a global message (own messages only, or admin can delete any)
+ */
+router.delete('/messages/:id', isAuthenticated, async (req, res) => {
+    try {
+        const messageId = parseInt(req.params.id);
+        if (!messageId) return res.status(400).json({ success: false, message: 'Message ID required' });
+
+        // Get the message
+        const messages = await query('SELECT id, user_id FROM messages WHERE id = ?', [messageId]);
+        if (messages.length === 0) return res.status(404).json({ success: false, message: 'Message not found' });
+
+        const msg = messages[0];
+
+        // Check admin
+        const adminCheck = await query('SELECT MIN(id) as adminId FROM users');
+        const isAdmin = adminCheck[0].adminId === req.session.userId;
+
+        if (msg.user_id !== req.session.userId && !isAdmin) {
+            return res.status(403).json({ success: false, message: 'Not authorized to delete this message' });
+        }
+
+        await query('DELETE FROM messages WHERE id = ?', [messageId]);
+        console.log(`🗑️ Global message #${messageId} deleted by ${req.session.username}`);
+        return res.status(200).json({ success: true, messageId });
+    } catch (error) {
+        console.error('Error deleting message:', error);
+        return res.status(500).json({ success: false, message: 'Error deleting message' });
+    }
+});
+
 module.exports = router;

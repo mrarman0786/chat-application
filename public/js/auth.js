@@ -18,144 +18,101 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
+    // ============================================
+    // E2EE KEY GENERATION
+    // ============================================
+    async function generateE2EEKeys() {
+        try {
+            const keyPair = await window.crypto.subtle.generateKey(
+                {
+                    name: "RSA-OAEP",
+                    modulusLength: 2048,
+                    publicExponent: new Uint8Array([1, 0, 1]),
+                    hash: "SHA-256",
+                },
+                true,
+                ["encrypt", "decrypt"]
+            );
+
+            const publicKeyJWK = await window.crypto.subtle.exportKey("jwk", keyPair.publicKey);
+            const privateKeyJWK = await window.crypto.subtle.exportKey("jwk", keyPair.privateKey);
+            
+            sessionStorage.setItem('chat_private_key', JSON.stringify(privateKeyJWK));
+            return JSON.stringify(publicKeyJWK);
+        } catch (e) {
+            console.error('Key generation error:', e);
+            return null;
+        }
+    }
 
     // ============================================
     // DOM ELEMENTS
     // ============================================
-    const loginForm = document.getElementById('login-form');
-    const registerForm = document.getElementById('register-form');
-    const tabButtons = document.querySelectorAll('.tab-btn');
+    const guestForm = document.getElementById('guest-form');
     const messageContainer = document.getElementById('message-container');
     const messageText = document.getElementById('message-text');
 
     // ============================================
-    // TAB SWITCHING
+    // GUEST FORM SUBMISSION
     // ============================================
-    tabButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            const tab = btn.dataset.tab;
+    if (guestForm) {
+        guestForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
 
-            // Update active tab button
-            tabButtons.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
+            const username = document.getElementById('guest-username').value.trim();
+            if (!username) return;
 
-            // Show/hide forms
-            if (tab === 'login') {
-                loginForm.classList.add('active');
-                registerForm.classList.remove('active');
-            } else {
-                loginForm.classList.remove('active');
-                registerForm.classList.add('active');
+            const btn = document.getElementById('guest-btn');
+            const btnText = btn.querySelector('.btn-text');
+            const originalText = btnText.textContent;
+            
+            btn.disabled = true;
+            btnText.textContent = 'Generating keys...';
+
+            const publicKey = await generateE2EEKeys();
+            if (!publicKey) {
+                showMessage('Security error: Could not generate keys', 'error');
+                btn.disabled = false;
+                btnText.textContent = originalText;
+                return;
             }
 
-            // Hide any messages
-            hideMessage();
+            btnText.textContent = 'Joining chat...';
+
+            const guestBtn = document.getElementById('guest-btn');
+            setButtonLoading(guestBtn, true);
+
+            try {
+                // Generate E2EE Keys
+                showMessage('Securing your connection...', 'success');
+                const publicKey = await generateE2EEKeys();
+
+                const response = await fetch('/api/auth/guest', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ username, publicKey })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showMessage('Welcome! Redirecting to secure chat...', 'success');
+                    setTimeout(() => {
+                        window.location.href = '/chat.html';
+                    }, 800);
+                } else {
+                    showMessage(data.message || 'Login failed', 'error');
+                }
+
+            } catch (error) {
+                console.error('Guest login error:', error);
+                showMessage('Network error. Please try again.', 'error');
+            } finally {
+                setButtonLoading(guestBtn, false);
+            }
         });
-    });
-
-    // ============================================
-    // LOGIN FORM SUBMISSION
-    // ============================================
-    loginForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-
-        const username = document.getElementById('login-username').value.trim();
-        const password = document.getElementById('login-password').value;
-
-        // Client-side validation
-        if (!username || !password) {
-            showMessage('Please fill in all fields', 'error');
-            return;
-        }
-
-        // Disable button and show loader
-        const loginBtn = document.getElementById('login-btn');
-        setButtonLoading(loginBtn, true);
-
-        try {
-            const response = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ username, password })
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                showMessage('Login successful! Redirecting...', 'success');
-                setTimeout(() => {
-                    window.location.href = '/chat.html';
-                }, 500);
-            } else {
-                showMessage(data.message || 'Login failed', 'error');
-            }
-
-        } catch (error) {
-            console.error('Login error:', error);
-            showMessage('Network error. Please try again.', 'error');
-        } finally {
-            setButtonLoading(loginBtn, false);
-        }
-    });
-
-    // ============================================
-    // REGISTER FORM SUBMISSION
-    // ============================================
-    registerForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-
-        const username = document.getElementById('register-username').value.trim();
-        const email = document.getElementById('register-email').value.trim();
-        const password = document.getElementById('register-password').value;
-
-        // Client-side validation
-        if (!username || !email || !password) {
-            showMessage('Please fill in all fields', 'error');
-            return;
-        }
-
-        if (username.length < 3) {
-            showMessage('Username must be at least 3 characters', 'error');
-            return;
-        }
-
-        if (password.length < 6) {
-            showMessage('Password must be at least 6 characters', 'error');
-            return;
-        }
-
-        // Disable button and show loader
-        const registerBtn = document.getElementById('register-btn');
-        setButtonLoading(registerBtn, true);
-
-        try {
-            const response = await fetch('/api/auth/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ username, email, password })
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                showMessage(data.message || 'Registration successful! Please log in.', 'success');
-                // Switch to login tab
-                setTimeout(() => {
-                    tabButtons[0].click();
-                }, 1500);
-            } else {
-                showMessage(data.message || 'Registration failed', 'error');
-            }
-
-        } catch (error) {
-            console.error('Registration error:', error);
-            showMessage('Network error. Please try again.', 'error');
-        } finally {
-            setButtonLoading(registerBtn, false);
-        }
-    });
+    }
 
     // ============================================
     // UTILITY FUNCTIONS

@@ -74,9 +74,12 @@ CREATE TABLE IF NOT EXISTS private_messages (
     file_url VARCHAR(500) DEFAULT NULL,
     file_name VARCHAR(255) DEFAULT NULL,
     file_size INT DEFAULT NULL,
+    reply_to_id INT DEFAULT NULL,
+    forwarded_from VARCHAR(100) DEFAULT NULL,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
-    FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE SET NULL
+    FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (reply_to_id) REFERENCES private_messages(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE INDEX idx_pm_chat_id ON private_messages(chat_id);
@@ -98,8 +101,11 @@ CREATE TABLE IF NOT EXISTS messages (
     file_url VARCHAR(500) DEFAULT NULL,
     file_name VARCHAR(255) DEFAULT NULL,
     file_size INT DEFAULT NULL,
+    reply_to_id INT DEFAULT NULL,
+    forwarded_from VARCHAR(100) DEFAULT NULL,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (reply_to_id) REFERENCES messages(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE INDEX idx_messages_timestamp ON messages(timestamp);

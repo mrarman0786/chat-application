@@ -189,14 +189,36 @@ router.get('/:chatId/messages', isAuthenticated, async (req, res) => {
         const limit = parseInt(req.query.limit) || 50;
         const offset = parseInt(req.query.offset) || 0;
 
-        // Verify user is participant
+        // Verify user is participant and the room is active
         const participant = await query(
-            `SELECT id FROM chat_participants WHERE chat_id = ? AND user_id = ?`,
-            [chatId, req.session.userId]
+            `SELECT c.id, c.chat_type, c.room_status, c.expires_at
+             FROM chats c
+             JOIN chat_participants cp ON cp.chat_id = c.id AND cp.user_id = ?
+             WHERE c.id = ?
+             LIMIT 1`,
+            [req.session.userId, chatId]
         );
 
         if (participant.length === 0) {
             return res.status(403).json({ success: false, message: 'Not a participant' });
+        }
+
+        const chat = participant[0];
+        const isExpiredGroup = chat.chat_type === 'group' && (
+            chat.room_status !== 'active' ||
+            (chat.expires_at && new Date(chat.expires_at).getTime() <= Date.now())
+        );
+
+        if (isExpiredGroup) {
+            if (chat.expires_at && new Date(chat.expires_at).getTime() <= Date.now()) {
+                await query(
+                    `UPDATE chats
+                     SET room_status = 'expired', closed_at = COALESCE(closed_at, NOW())
+                     WHERE id = ? AND room_status = 'active'`,
+                    [chatId]
+                );
+            }
+            return res.status(410).json({ success: false, message: 'Room has expired or is closed' });
         }
 
         const messages = await query(

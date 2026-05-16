@@ -119,9 +119,26 @@ async function testConnection() {
                         chat_type ENUM('private','group','global','room') NOT NULL DEFAULT 'private',
                         name VARCHAR(100) NULL,
                         room_code VARCHAR(8) UNIQUE NULL,
+                        room_status ENUM('active','closed','expired') NOT NULL DEFAULT 'active',
+                        expires_at TIMESTAMP NULL,
+                        closed_at TIMESTAMP NULL,
+                        created_by INT NULL,
+                        max_participants INT NOT NULL DEFAULT 10,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
                 `);
+
+                // Migrations for chats table / room sessions
+                const [chatCols] = await connection.query("SHOW COLUMNS FROM chats");
+                const chatColNames = chatCols.map(c => c.Field);
+                if (!chatColNames.includes('room_code')) await connection.query("ALTER TABLE chats ADD COLUMN room_code VARCHAR(8) UNIQUE NULL");
+                if (!chatColNames.includes('room_status')) await connection.query("ALTER TABLE chats ADD COLUMN room_status ENUM('active','closed','expired') NOT NULL DEFAULT 'active'");
+                if (!chatColNames.includes('expires_at')) await connection.query("ALTER TABLE chats ADD COLUMN expires_at TIMESTAMP NULL");
+                if (!chatColNames.includes('closed_at')) await connection.query("ALTER TABLE chats ADD COLUMN closed_at TIMESTAMP NULL");
+                if (!chatColNames.includes('created_by')) await connection.query("ALTER TABLE chats ADD COLUMN created_by INT NULL");
+                if (!chatColNames.includes('max_participants')) await connection.query("ALTER TABLE chats ADD COLUMN max_participants INT NOT NULL DEFAULT 10");
+                await connection.query("ALTER TABLE chats MODIFY COLUMN chat_type ENUM('private','group','global','room') NOT NULL DEFAULT 'private'");
+                await connection.query("ALTER TABLE chats MODIFY COLUMN room_status ENUM('active','closed','expired') NOT NULL DEFAULT 'active'");
 
                 // Ensure chat_participants table exists
                 await connection.query(`
@@ -173,6 +190,7 @@ async function testConnection() {
                         mood ENUM('happy','sad','angry','calm','excited') DEFAULT 'happy',
                         topics VARCHAR(500) DEFAULT '',
                         is_anonymous BOOLEAN DEFAULT FALSE,
+                        is_burn BOOLEAN DEFAULT FALSE,
                         message_type ENUM('text','image','video','file') DEFAULT 'text',
                         file_url VARCHAR(500) DEFAULT NULL,
                         file_name VARCHAR(255) DEFAULT NULL,
@@ -191,18 +209,14 @@ async function testConnection() {
                     await connection.query("ALTER TABLE private_messages ADD COLUMN is_burn BOOLEAN DEFAULT FALSE");
                 }
 
-                // Check and update chat_type enum in chats
-                await connection.query("ALTER TABLE chats MODIFY COLUMN chat_type ENUM('private','group','global','room') NOT NULL DEFAULT 'private'");
-
-
                 // Check if is_burn column exists in messages
-                const columnsM = await connection.query("SHOW COLUMNS FROM messages LIKE 'is_burn'");
+                const [columnsM] = await connection.query("SHOW COLUMNS FROM messages LIKE 'is_burn'");
                 if (columnsM.length === 0) {
                     await connection.query("ALTER TABLE messages ADD COLUMN is_burn BOOLEAN DEFAULT FALSE");
                 }
 
                 // Check if is_burn column exists in private_messages
-                const columnsPM = await connection.query("SHOW COLUMNS FROM private_messages LIKE 'is_burn'");
+                const [columnsPM] = await connection.query("SHOW COLUMNS FROM private_messages LIKE 'is_burn'");
                 if (columnsPM.length === 0) {
                     await connection.query("ALTER TABLE private_messages ADD COLUMN is_burn BOOLEAN DEFAULT FALSE");
                 }

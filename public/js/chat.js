@@ -6,6 +6,7 @@ let currentChatId = null;
 let currentRoomCode = null;
 let currentUser = { id: null, username: '' };
 let isBurnMode = false; // 10s Burn toggle
+let hasTriedRoomRestore = false;
 
 // --- Reimagined E2EE: Code-Derived AES-GCM ---
 let currentSessionKey = null;
@@ -76,6 +77,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Chat Panel Elements
     const chatHeaderName = document.getElementById('chat-header-name');
+    const chatHeaderStatus = document.getElementById('chat-header-status');
     const leaveRoomBtn = document.getElementById('leave-room-btn');
     const killRoomBtn = document.getElementById('kill-room-btn');
     const messagesContainer = document.getElementById('messages-container');
@@ -86,13 +88,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const burnToggleBtn = document.getElementById('burn-toggle-btn');
     const emojiBtn = document.getElementById('emoji-btn');
     const emojiPicker = document.getElementById('emoji-picker');
-
-    // Auto-rejoin from sessionStorage
-    const savedChatId = sessionStorage.getItem('ticTalkChatId');
-    const savedRoomCode = sessionStorage.getItem('ticTalkRoomCode');
-    if (savedChatId && savedRoomCode) {
-        enterRoom(savedChatId, savedRoomCode);
-    }
 
     // Load Theme from localStorage
     const savedTheme = localStorage.getItem('ticTalkTheme');
@@ -114,10 +109,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentUsernameEl) {
             currentUsernameEl.textContent = `Logged in as: ${data.username}`;
         }
+        restoreRoomFromSession();
     });
 
     socket.on('error', (err) => {
+        if (err.message && err.message.toLowerCase().includes('unauthorized')) {
+            window.location.href = '/';
+            return;
+        }
         alert(err.message || 'An error occurred');
+    });
+
+    socket.on('connect_error', (err) => {
+        if (err.message && err.message.toLowerCase().includes('authentication')) {
+            window.location.href = '/';
+        }
     });
 
     socket.on('receive-private-message', async (data) => {
@@ -139,7 +145,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     socket.on('room-killed', (data) => {
         if (data.chatId == currentChatId) {
-            alert('This room has been forcefully deleted (Kill Switch).');
+            alert(data.reason === 'expired' ? 'This room has expired.' : 'This room has been closed.');
             leaveRoom(true); // true = don't emit leave, just UI clear
         }
     });
@@ -170,10 +176,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    socket.on('room-participants', (data) => {
+        if (data.chatId == currentChatId) {
+            updateParticipantStatus(data.participantCount || (data.participants ? data.participants.length : 1));
+        }
+    });
+
     // Create Room Flow
     createRoomBtn.addEventListener('click', async () => {
         try {
             const res = await fetch('/api/rooms/create', { method: 'POST' });
+            if (redirectIfUnauthorized(res)) return;
             const data = await res.json();
             if (data.success) {
                 createRoomBtn.style.display = 'none';
@@ -199,7 +212,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     enterCreatedRoomBtn.addEventListener('click', () => {
-        enterRoom(currentChatId, currentRoomCode);
+        enterRoom(currentChatId, currentRoomCode, { participantCount: 1 });
     });
 
     // Join Room Flow
@@ -217,10 +230,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ roomCode: code })
             });
+            if (redirectIfUnauthorized(res)) return;
             const data = await res.json();
             
             if (data.success) {
-                enterRoom(data.chatId, data.roomCode);
+                enterRoom(data.chatId, data.roomCode, data);
             } else {
                 alert(data.message || 'Failed to join room');
             }
@@ -300,18 +314,72 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Functions
-    async function enterRoom(chatId, roomCode) {
+    function redirectIfUnauthorized(res) {
+        if (res.status === 401) {
+            window.location.href = '/';
+            return true;
+        }
+        return false;
+    }
+
+    async function restoreRoomFromSession() {
+        if (hasTriedRoomRestore || currentChatId) return;
+        hasTriedRoomRestore = true;
+
+        try {
+            const res = await fetch('/api/rooms/current');
+            if (redirectIfUnauthorized(res)) return;
+            const data = await res.json();
+            if (data.success && data.room) {
+                await enterRoom(data.room.chatId, data.room.roomCode, data.room);
+            }
+        } catch (e) {
+            console.error('Room session restore failed:', e);
+        }
+    }
+
+    async function loadRoomMessages(chatId) {
+        try {
+            const res = await fetch(`/api/chats/${chatId}/messages?limit=50`);
+            if (redirectIfUnauthorized(res)) return;
+            if (res.status === 410) {
+                alert('This room has expired or is closed.');
+                await leaveRoom(true);
+                return;
+            }
+
+            const data = await res.json();
+            if (!data.success || !Array.isArray(data.messages)) return;
+
+            for (const msg of data.messages) {
+                const isMe = msg.sender_id === currentUser.id;
+                const decryptedText = msg.isAI ? msg.message : await decryptWithAES(msg.message);
+                appendMessage(msg.id, msg.sender_username, decryptedText, isMe, msg.timestamp, msg.isBurn);
+            }
+            scrollToBottom();
+        } catch (e) {
+            console.error('Load room messages failed:', e);
+        }
+    }
+
+    function updateParticipantStatus(count) {
+        if (!chatHeaderStatus) return;
+        const safeCount = Math.max(Number(count) || 1, 1);
+        chatHeaderStatus.innerHTML = `
+            <span class="status-dot connected"></span> Secure (E2EE) - ${safeCount} participant${safeCount === 1 ? '' : 's'}
+        `;
+    }
+
+    async function enterRoom(chatId, roomCode, roomMeta = {}) {
         currentChatId = chatId;
         currentRoomCode = roomCode;
-        
-        sessionStorage.setItem('ticTalkChatId', chatId);
-        sessionStorage.setItem('ticTalkRoomCode', roomCode);
-        
+
         await deriveKeyFromRoomCode(roomCode);
         
         lobbyScreen.style.display = 'none';
         appContainer.style.display = 'flex';
         chatHeaderName.textContent = `Room: ${roomCode}`;
+        updateParticipantStatus(roomMeta.participantCount || (roomMeta.participants ? roomMeta.participants.length : 1));
         
         messagesContainer.innerHTML = `
             <div class="system-message" id="welcome-message">
@@ -319,18 +387,27 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
         `;
         
+        await loadRoomMessages(chatId);
         socket.emit('join-private-chat', { chatId });
     }
 
-    function leaveRoom(forced = false) {
-        if (!forced && currentChatId) {
-            socket.emit('leave-private-chat', { chatId: currentChatId });
+    async function leaveRoom(forced = false) {
+        const leavingChatId = currentChatId;
+        if (!forced && leavingChatId) {
+            try {
+                await fetch('/api/rooms/leave', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chatId: leavingChatId })
+                });
+            } catch (e) {
+                console.error('Leave room error:', e);
+            }
+            socket.emit('leave-private-chat', { chatId: leavingChatId });
         }
         currentChatId = null;
         currentRoomCode = null;
         currentSessionKey = null;
-        sessionStorage.removeItem('ticTalkChatId');
-        sessionStorage.removeItem('ticTalkRoomCode');
         
         appContainer.style.display = 'none';
         lobbyScreen.style.display = 'block';
@@ -361,7 +438,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         div.innerHTML = `
             <div class="message-content glass-morphic" oncontextmenu="showMessageMenu(event, ${id})">
-                ${!isMe ? `<div class="message-sender" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 2px;">${senderName}</div>` : ''}
+                ${!isMe ? `<div class="message-sender" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 2px;">${escapeHtml(senderName)}</div>` : ''}
                 <div class="message-text">${escapeHtml(text)}</div>
                 ${burnHtml}
                 <div class="message-info">
@@ -378,7 +455,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     function escapeHtml(unsafe) {
-        return unsafe
+        return String(unsafe)
              .replace(/&/g, "&amp;")
              .replace(/</g, "&lt;")
              .replace(/>/g, "&gt;")

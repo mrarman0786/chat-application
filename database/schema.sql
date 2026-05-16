@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(100) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
     avatar VARCHAR(500) DEFAULT '',
+    public_key TEXT,
     is_online BOOLEAN DEFAULT FALSE,
     last_seen TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -33,10 +34,19 @@ CREATE TABLE IF NOT EXISTS users (
 -- ============================================
 CREATE TABLE IF NOT EXISTS chats (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    chat_type ENUM('private','group','global') NOT NULL DEFAULT 'private',
+    chat_type ENUM('private','group','global','room') NOT NULL DEFAULT 'private',
     name VARCHAR(100) NULL,
+    room_code VARCHAR(8) UNIQUE NULL,
+    room_status ENUM('active','closed','expired') NOT NULL DEFAULT 'active',
+    expires_at TIMESTAMP NULL,
+    closed_at TIMESTAMP NULL,
+    created_by INT NULL,
+    max_participants INT NOT NULL DEFAULT 10,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE INDEX idx_chats_room_status ON chats(room_status);
+CREATE INDEX idx_chats_expires_at ON chats(expires_at);
 
 -- ============================================
 -- CHAT PARTICIPANTS TABLE
@@ -70,6 +80,7 @@ CREATE TABLE IF NOT EXISTS private_messages (
     is_anonymous BOOLEAN DEFAULT FALSE,
     is_ai BOOLEAN DEFAULT FALSE,
     is_seen BOOLEAN DEFAULT FALSE,
+    is_burn BOOLEAN DEFAULT FALSE,
     message_type ENUM('text','image','video','file') DEFAULT 'text',
     file_url VARCHAR(500) DEFAULT NULL,
     file_name VARCHAR(255) DEFAULT NULL,
@@ -97,6 +108,7 @@ CREATE TABLE IF NOT EXISTS messages (
     mood ENUM('happy','sad','angry','calm','excited') DEFAULT 'happy',
     topics VARCHAR(500) DEFAULT '',
     is_anonymous BOOLEAN DEFAULT FALSE,
+    is_burn BOOLEAN DEFAULT FALSE,
     message_type ENUM('text','image','video','file') DEFAULT 'text',
     file_url VARCHAR(500) DEFAULT NULL,
     file_name VARCHAR(255) DEFAULT NULL,
@@ -118,13 +130,22 @@ CREATE INDEX idx_messages_mood ON messages(mood);
 -- Run these if you already have the old tables:
 --
 -- ALTER TABLE users ADD COLUMN avatar VARCHAR(500) DEFAULT '';
+-- ALTER TABLE users ADD COLUMN public_key TEXT;
 -- ALTER TABLE users ADD COLUMN is_online BOOLEAN DEFAULT FALSE;
 -- ALTER TABLE users ADD COLUMN last_seen TIMESTAMP NULL;
+-- ALTER TABLE chats ADD COLUMN room_code VARCHAR(8) UNIQUE NULL;
+-- ALTER TABLE chats ADD COLUMN room_status ENUM('active','closed','expired') NOT NULL DEFAULT 'active';
+-- ALTER TABLE chats ADD COLUMN expires_at TIMESTAMP NULL;
+-- ALTER TABLE chats ADD COLUMN closed_at TIMESTAMP NULL;
+-- ALTER TABLE chats ADD COLUMN created_by INT NULL;
+-- ALTER TABLE chats ADD COLUMN max_participants INT NOT NULL DEFAULT 10;
 -- ALTER TABLE messages ADD COLUMN message_type ENUM('text','image','video','file') DEFAULT 'text';
 -- ALTER TABLE messages ADD COLUMN file_url VARCHAR(500) DEFAULT NULL;
 -- ALTER TABLE messages ADD COLUMN file_name VARCHAR(255) DEFAULT NULL;
 -- ALTER TABLE messages ADD COLUMN file_size INT DEFAULT NULL;
+-- ALTER TABLE messages ADD COLUMN is_burn BOOLEAN DEFAULT FALSE;
 -- ALTER TABLE private_messages ADD COLUMN message_type ENUM('text','image','video','file') DEFAULT 'text';
 -- ALTER TABLE private_messages ADD COLUMN file_url VARCHAR(500) DEFAULT NULL;
 -- ALTER TABLE private_messages ADD COLUMN file_name VARCHAR(255) DEFAULT NULL;
 -- ALTER TABLE private_messages ADD COLUMN file_size INT DEFAULT NULL;
+-- ALTER TABLE private_messages ADD COLUMN is_burn BOOLEAN DEFAULT FALSE;

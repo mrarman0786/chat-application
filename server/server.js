@@ -85,6 +85,28 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '15mb' }));
 app.use(sessionMiddleware);
 
 // ============================================
+// PAGE ROUTES
+// ============================================
+
+// Login page (default)
+app.get('/', (req, res) => {
+    // If already logged in, redirect to chat
+    if (req.session && req.session.userId) {
+        return res.redirect('/chat.html');
+    }
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+});
+
+// Chat page (protected). This must be registered before express.static,
+// otherwise public/chat.html can be served without a session.
+app.get('/chat.html', (req, res) => {
+    if (!req.session || !req.session.userId) {
+        return res.redirect('/');
+    }
+    res.sendFile(path.join(__dirname, '../public/chat.html'));
+});
+
+// ============================================
 // STATIC FILE SERVING
 // ============================================
 // Serve files from the 'public' directory
@@ -110,28 +132,6 @@ app.use('/api/ai', aiRoutes);
 
 // Mount upload routes
 app.use('/api/upload', uploadRoutes);
-
-// ============================================
-// PAGE ROUTES
-// ============================================
-
-// Login page (default)
-app.get('/', (req, res) => {
-    // If already logged in, redirect to chat
-    if (req.session && req.session.userId) {
-        return res.redirect('/chat.html');
-    }
-    res.sendFile(path.join(__dirname, '../public/index.html'));
-});
-
-// Chat page (protected)
-app.get('/chat.html', (req, res) => {
-    // Check if authenticated
-    if (!req.session || !req.session.userId) {
-        return res.redirect('/');
-    }
-    res.sendFile(path.join(__dirname, '../public/chat.html'));
-});
 
 // ============================================
 // ERROR HANDLING
@@ -197,12 +197,28 @@ async function startServer() {
                         const res1 = await query('DELETE FROM messages WHERE timestamp < NOW() - INTERVAL 1 DAY');
                         // Delete private messages older than 24h
                         const res2 = await query('DELETE FROM private_messages WHERE timestamp < NOW() - INTERVAL 1 DAY');
-                        // Delete old rooms
-                        const res3 = await query("DELETE FROM chats WHERE chat_type = 'group' AND created_at < NOW() - INTERVAL 1 DAY");
+                        // Expire old rooms but keep chat rows so room codes are never reused
+                        const res3 = await query(
+                            `UPDATE chats
+                             SET room_status = 'expired', closed_at = COALESCE(closed_at, NOW())
+                             WHERE chat_type = 'group'
+                               AND room_status = 'active'
+                               AND (
+                                    (expires_at IS NOT NULL AND expires_at <= NOW())
+                                    OR (expires_at IS NULL AND created_at < NOW() - INTERVAL 1 DAY)
+                               )`
+                        );
+                        // Remove participants from inactive rooms without freeing the room code
+                        const resRooms = await query(
+                            `DELETE cp FROM chat_participants cp
+                             INNER JOIN chats c ON c.id = cp.chat_id
+                             WHERE c.chat_type = 'group'
+                               AND c.room_status IN ('closed', 'expired')`
+                        );
                         // Delete old users (for true anonymity)
                         const res4 = await query('DELETE FROM users WHERE created_at < NOW() - INTERVAL 1 DAY AND id != 1'); // Keep admin
                         
-                        console.log(`✅ Cleanup complete. Deleted ${res1.affectedRows || 0} global, ${res2.affectedRows || 0} private messages, ${res3.affectedRows || 0} rooms, ${res4.affectedRows || 0} old users.`);
+                        console.log(`✅ Cleanup complete. Deleted ${res1.affectedRows || 0} global, ${res2.affectedRows || 0} private messages, expired ${res3.affectedRows || 0} rooms, removed ${resRooms.affectedRows || 0} inactive room participants, deleted ${res4.affectedRows || 0} old users.`);
                     } catch (err) {
                         console.error('❌ Cleanup job failed:', err);
                     }

@@ -18,6 +18,54 @@ const onlineSockets = new Map();
 // Track usernames for online users: Map<userId, username>
 const onlineUsernames = new Map();
 
+function isInactiveGroupChat(chat) {
+    if (!chat || chat.chat_type !== 'group') return false;
+    const expired = chat.expires_at && new Date(chat.expires_at).getTime() <= Date.now();
+    return chat.room_status !== 'active' || expired;
+}
+
+async function getParticipantChat(chatId, userId) {
+    const chats = await query(
+        `SELECT c.id, c.chat_type, c.room_code, c.room_status, c.expires_at, c.max_participants
+         FROM chats c
+         JOIN chat_participants cp ON cp.chat_id = c.id AND cp.user_id = ?
+         WHERE c.id = ?
+         LIMIT 1`,
+        [userId, chatId]
+    );
+
+    return chats.length > 0 ? chats[0] : null;
+}
+
+async function markRoomExpired(chatId) {
+    await query(
+        `UPDATE chats
+         SET room_status = 'expired', closed_at = COALESCE(closed_at, NOW())
+         WHERE id = ? AND chat_type = 'group' AND room_status = 'active'`,
+        [chatId]
+    );
+}
+
+async function getRoomParticipants(chatId) {
+    return query(
+        `SELECT u.id, u.username, u.public_key, u.is_online
+         FROM chat_participants cp
+         JOIN users u ON cp.user_id = u.id
+         WHERE cp.chat_id = ?
+         ORDER BY cp.joined_at ASC`,
+        [chatId]
+    );
+}
+
+async function emitRoomParticipants(io, chatId) {
+    const participants = await getRoomParticipants(chatId);
+    io.to(`chat_${chatId}`).emit('room-participants', {
+        chatId,
+        participants,
+        participantCount: participants.length
+    });
+}
+
 /**
  * Initialize Socket.IO with session sharing
  */
@@ -163,14 +211,17 @@ function initializeSocket(io, sessionMiddleware) {
                 const { chatId } = data;
                 if (!chatId) return;
 
-                // Verify participant
-                const participant = await query(
-                    'SELECT id FROM chat_participants WHERE chat_id = ? AND user_id = ?',
-                    [chatId, socket.userId]
-                );
+                const chat = await getParticipantChat(chatId, socket.userId);
 
-                if (participant.length === 0) {
+                if (!chat) {
                     return socket.emit('error', { message: 'Not authorized for this chat' });
+                }
+
+                if (isInactiveGroupChat(chat)) {
+                    if (chat.expires_at && new Date(chat.expires_at).getTime() <= Date.now()) {
+                        await markRoomExpired(chatId);
+                    }
+                    return socket.emit('room-killed', { chatId, reason: 'expired' });
                 }
 
                 // Join the socket room
@@ -187,6 +238,10 @@ function initializeSocket(io, sessionMiddleware) {
                 }
 
                 console.log(`🔑 ${socket.username} joined private chat #${chatId}`);
+
+                if (chat.chat_type === 'group') {
+                    await emitRoomParticipants(io, chatId);
+                }
 
                 // Mark messages as seen
                 await query(
@@ -214,18 +269,21 @@ function initializeSocket(io, sessionMiddleware) {
                     return socket.emit('error', { message: 'Chat ID and message required' });
                 }
 
-                if (message.length > 1000) {
+                if (message.length > 2500) {
                     return socket.emit('error', { message: 'Message too long' });
                 }
 
-                // Verify participant
-                const participant = await query(
-                    'SELECT id FROM chat_participants WHERE chat_id = ? AND user_id = ?',
-                    [chatId, socket.userId]
-                );
+                const chat = await getParticipantChat(chatId, socket.userId);
 
-                if (participant.length === 0) {
+                if (!chat) {
                     return socket.emit('error', { message: 'Not authorized' });
+                }
+
+                if (isInactiveGroupChat(chat)) {
+                    if (chat.expires_at && new Date(chat.expires_at).getTime() <= Date.now()) {
+                        await markRoomExpired(chatId);
+                    }
+                    return socket.emit('room-killed', { chatId, reason: 'expired' });
                 }
 
                 const safeMood = ['happy', 'sad', 'angry', 'calm', 'excited'].includes(mood) ? mood : 'happy';
@@ -310,6 +368,9 @@ function initializeSocket(io, sessionMiddleware) {
                     io.emit('message-deleted', { messageId, chatType: 'global' });
                     console.log(`🗑️ Global msg #${messageId} deleted by ${socket.username}`);
                 } else if (chatType === 'private' && chatId) {
+                    const chat = await getParticipantChat(chatId, socket.userId);
+                    if (!chat || isInactiveGroupChat(chat)) return;
+
                     const msg = await query('SELECT sender_id FROM private_messages WHERE id = ? AND chat_id = ?', [messageId, chatId]);
                     if (msg.length === 0) return;
                     const adminCheck = await query('SELECT MIN(id) as adminId FROM users');
@@ -332,6 +393,9 @@ function initializeSocket(io, sessionMiddleware) {
             try {
                 const { messageId, chatId, emoji } = data;
                 if (!messageId || !chatId || !emoji) return;
+
+                const chat = await getParticipantChat(chatId, socket.userId);
+                if (!chat || isInactiveGroupChat(chat)) return;
 
                 // Save to DB
                 try {
@@ -363,16 +427,18 @@ function initializeSocket(io, sessionMiddleware) {
             const { chatId } = data;
             if (!chatId) return;
             try {
-                // Verify participant
-                const participant = await query(
-                    'SELECT id FROM chat_participants WHERE chat_id = ? AND user_id = ?',
-                    [chatId, socket.userId]
-                );
-                if (participant.length > 0) {
-                    // Delete the chat room (cascading will handle everything)
-                    await query('DELETE FROM chats WHERE id = ?', [chatId]);
-                    // Notify everyone in the room
-                    io.to(`chat_${chatId}`).emit('room-killed', { chatId });
+                const chat = await getParticipantChat(chatId, socket.userId);
+                if (chat && chat.chat_type === 'group') {
+                    io.to(`chat_${chatId}`).emit('room-killed', { chatId, reason: 'closed' });
+                    await query(
+                        `UPDATE chats
+                         SET room_status = 'closed', closed_at = COALESCE(closed_at, NOW())
+                         WHERE id = ? AND chat_type = 'group'`,
+                        [chatId]
+                    );
+                    await query('DELETE FROM reactions WHERE chat_id = ?', [chatId]);
+                    await query('DELETE FROM private_messages WHERE chat_id = ?', [chatId]);
+                    await query('DELETE FROM chat_participants WHERE chat_id = ?', [chatId]);
                     console.log(`💀 Room #${chatId} KILLED by ${socket.username}`);
                 }
             } catch (e) {
@@ -404,12 +470,9 @@ function initializeSocket(io, sessionMiddleware) {
                 const { targetChatId, message, forwardedFrom } = data;
                 if (!targetChatId || !message) return;
 
-                // Verify sender is participant of target chat
-                const participant = await query(
-                    'SELECT id FROM chat_participants WHERE chat_id = ? AND user_id = ?',
-                    [targetChatId, socket.userId]
-                );
-                if (participant.length === 0) return socket.emit('error', { message: 'Not authorized for target chat' });
+                const chat = await getParticipantChat(targetChatId, socket.userId);
+                if (!chat) return socket.emit('error', { message: 'Not authorized for target chat' });
+                if (isInactiveGroupChat(chat)) return socket.emit('error', { message: 'Target room is expired or closed' });
 
                 const result = await query(
                     `INSERT INTO private_messages 
@@ -487,6 +550,9 @@ function initializeSocket(io, sessionMiddleware) {
         socket.on('message-seen', async (data) => {
             try {
                 const { chatId } = data;
+                const chat = await getParticipantChat(chatId, socket.userId);
+                if (!chat || isInactiveGroupChat(chat)) return;
+
                 await query(
                     `UPDATE private_messages SET is_seen = TRUE 
                      WHERE chat_id = ? AND sender_id != ? AND is_seen = FALSE`,
@@ -652,6 +718,15 @@ function initializeSocket(io, sessionMiddleware) {
                 const { chatId, fileUrl, fileName, fileSize, messageType, mood } = data;
                 if (!chatId || !fileUrl) return socket.emit('error', { message: 'Chat ID and file URL required' });
 
+                const chat = await getParticipantChat(chatId, socket.userId);
+                if (!chat) return socket.emit('error', { message: 'Not authorized' });
+                if (isInactiveGroupChat(chat)) {
+                    if (chat.expires_at && new Date(chat.expires_at).getTime() <= Date.now()) {
+                        await markRoomExpired(chatId);
+                    }
+                    return socket.emit('room-killed', { chatId, reason: 'expired' });
+                }
+
                 const safeMood = ['happy', 'sad', 'angry', 'calm', 'excited'].includes(mood) ? mood : 'happy';
 
                 const result = await query(
@@ -688,9 +763,14 @@ function initializeSocket(io, sessionMiddleware) {
         // ============================================
         // LEAVE PRIVATE CHAT
         // ============================================
-        socket.on('leave-private-chat', (data) => {
+        socket.on('leave-private-chat', async (data) => {
             if (data.chatId) {
                 socket.leave(`chat_${data.chatId}`);
+                try {
+                    await emitRoomParticipants(io, data.chatId);
+                } catch (e) {
+                    console.error('Error broadcasting room participants:', e);
+                }
             }
         });
 

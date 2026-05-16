@@ -18,6 +18,10 @@ require('dotenv').config();
  * This middleware will be applied to all routes
  */
 const isProduction = process.env.NODE_ENV === 'production';
+const isRailway = !!(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL);
+const cookieSecure = process.env.COOKIE_SECURE
+    ? process.env.COOKIE_SECURE === 'true'
+    : (isProduction && isRailway);
 
 const sessionMiddleware = session({
     // Secret key used to sign the session ID cookie
@@ -30,22 +34,23 @@ const sessionMiddleware = session({
     // Don't create session until something is stored
     saveUninitialized: false,
 
-    // Trust Railway's reverse proxy for secure cookies
-    proxy: isProduction,
+    // Trust the reverse proxy when secure cookies are enabled
+    proxy: cookieSecure,
 
     // Cookie configuration
     cookie: {
         // Session duration (24 hours by default)
         maxAge: parseInt(process.env.COOKIE_MAX_AGE) || 24 * 60 * 60 * 1000,
 
-        // Cookie only sent over HTTPS in production
-        secure: isProduction,
+        // Cookie only sent over HTTPS when the deployment requires it.
+        // Local two-browser HTTP testing should use COOKIE_SECURE=false.
+        secure: cookieSecure,
 
         // Prevents client-side JavaScript from reading the cookie
         httpOnly: true,
 
-        // In production behind proxy, use 'none' for cross-origin; otherwise 'lax'
-        sameSite: isProduction ? 'none' : 'lax'
+        // sameSite=None requires secure cookies; use lax for local HTTP testing
+        sameSite: cookieSecure ? 'none' : 'lax'
     },
 
     // Session name (default is 'connect.sid')

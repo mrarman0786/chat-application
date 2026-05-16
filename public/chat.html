@@ -24,7 +24,7 @@
     <div class="lobby-screen" id="lobby-screen">
         <div class="incognito-banner" id="incognito-banner" style="position: absolute; top: 0; left: 0; width: 100%; background: rgba(255, 153, 0, 0.9); color: #000; text-align: center; padding: 10px; font-size: 0.9rem; z-index: 1001; display: flex; justify-content: center; align-items: center; gap: 10px; font-weight: 500;">
             <i class="fa-solid fa-user-secret"></i>
-            <span><strong>Incognito Warning:</strong> Your keys are tied to this browser tab. Closing it will permanently lose access to your rooms.</span>
+            <span><strong>Session Note:</strong> Rooms stay tied to your login session. Closed or expired room codes cannot be reused.</span>
             <button id="dismiss-banner" class="icon-btn" title="Dismiss" style="color: #000; margin-left: 10px;"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <div class="lobby-container">
@@ -38,7 +38,7 @@
                 <!-- Create Room -->
                 <div class="lobby-card create-card">
                     <h3><i class="fa-solid fa-plus"></i> Create a Room</h3>
-                    <p>Start a new secure, anonymous chat room. Share the code with others to let them join.</p>
+                    <p>Start a new secure, anonymous group room. Share the code with others while the room is active.</p>
                     <button class="submit-btn create-room-btn" id="create-room-btn">
                         <span class="btn-text">Generate Room Code</span>
                     </button>
@@ -57,9 +57,9 @@
                 <!-- Join Room -->
                 <div class="lobby-card join-card">
                     <h3><i class="fa-solid fa-door-open"></i> Join a Room</h3>
-                    <p>Enter an 8-digit room code to join an existing secure chat.</p>
+                    <p>Enter an 8-character room code to join an active secure group chat.</p>
                     <form id="join-room-form">
-                        <input type="text" id="join-room-code" placeholder="Enter 8-digit code" maxlength="8" autocomplete="off" required style="text-transform: uppercase;">
+                        <input type="text" id="join-room-code" placeholder="Enter 8-character code" maxlength="8" autocomplete="off" required style="text-transform: uppercase;">
                         <button type="submit" class="submit-btn join-room-btn" id="join-room-btn">
                             <span class="btn-text">Join Room</span>
                         </button>
